@@ -1,10 +1,17 @@
 # FreeUnit Formal & Discrete-Event Behavioral Model
 
 [![CI](https://github.com/andypost/freeunit-model/actions/workflows/ci.yml/badge.svg)](https://github.com/andypost/freeunit-model/actions/workflows/ci.yml)
+[![Pages](https://github.com/andypost/freeunit-model/actions/workflows/pages.yml/badge.svg)](https://github.com/andypost/freeunit-model/actions/workflows/pages.yml)
+[![Documentation](https://img.shields.io/badge/docs-GitHub_Pages-blue.svg)](https://andypost.github.io/freeunit-model/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 
 A bit-accurate formal mathematical, discrete-event simulation, and adversarial verification engine for **[FreeUnit](https://github.com/freeunitorg/freeunit)** (the high-performance, multi-threaded C application server and community LTS fork of NGINX Unit).
+
+📖 **Online Documentation**: [https://andypost.github.io/freeunit-model/](https://andypost.github.io/freeunit-model/)  
+🤖 **Machine/LLM Index**: [`llms.txt`](https://andypost.github.io/freeunit-model/llms.txt)  
+🗺️ **Strategic Roadmap**: [Strategic Roadmap Chapter](https://andypost.github.io/freeunit-model/roadmap/)
+
 
 ---
 
@@ -12,34 +19,46 @@ A bit-accurate formal mathematical, discrete-event simulation, and adversarial v
 
 FreeUnit processes HTTP traffic across decoupled process boundaries using a dual-channel IPC architecture:
 
-```
-                       [Client TCP Connections]
-                                  │
-                                  ▼
-                     ┌───────────────────────────┐
-                     │   Listener (*:8080)       │ (EPOLLEXCLUSIVE on Linux)
-                     └─────────────┬─────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                    ▼
-     ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-     │ Router Engine 0 │  │ Router Engine 1 │  │ Router Engine N │ (nxt_event_engine_t)
-     └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
-              │                    │                    │
-              └────────────────────┼────────────────────┘
-                                   │
-      ┌────────────────────────────┼────────────────────────────┐
-      │ IPC Channel: App Queue     │ IPC Channel: Unix Sockets  │ Shared Memory
-      │ (Lockless ring buffer,     │ (Datagram socket pairs,    │ (16 KiB chunks,
-      │ <= 31 byte descriptors)    │ REQ_HEADERS, ACK, DOORDEL) │ mmaps->mutex, OOSM)
-      └────────────────────────────┼────────────────────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                    ▼
-     ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-     │ App Worker 1    │  │ App Worker 2    │  │ App Worker M    │
-     │ (libunit + SAPI)│  │ (libunit + SAPI)│  │ (libunit + SAPI)│
-     └─────────────────┘  └─────────────────┘  └─────────────────┘
+```mermaid
+flowchart TD
+    subgraph Clients["Client Connections"]
+        C1["Client 1 (TCP/TLS)"]
+        C2["Client 2 (TCP/TLS)"]
+        C3["Client K (TCP/TLS)"]
+    end
+
+    subgraph Kernel["Linux Kernel Network Stack"]
+        Listener["Listener (*:8080)<br/>EPOLLEXCLUSIVE Accept"]
+    end
+
+    subgraph Router["Router Multi-Threaded Process"]
+        direction TB
+        E0["Router Engine 0<br/>(nxt_event_engine_t)"]
+        E1["Router Engine 1<br/>(nxt_event_engine_t)"]
+        EN["Router Engine N<br/>(nxt_event_engine_t)"]
+    end
+
+    subgraph IPC["Dual-Channel IPC Transport"]
+        direction LR
+        Queue["App Queue Ring Buffer<br/>(Lockless nxt_app_queue_t,<br/>descriptors &le; 31B)"]
+        Socket["Unix Datagram Sockets<br/>(Socket pairs, SCM_RIGHTS,<br/>ACK, DOORDEL, Fallback)"]
+        SHM["Shared Memory Pool<br/>(16 KiB chunks, mmaps-&gt;mutex,<br/>OOSM backpressure)"]
+    end
+
+    subgraph Workers["App Worker Processes (libunit + SAPI)"]
+        W1["Worker 1<br/>(PHP / Python / Go)"]
+        W2["Worker 2<br/>(PHP / Python / Go)"]
+        WM["Worker M<br/>(PHP / Python / Go)"]
+    end
+
+    C1 & C2 & C3 --> Listener
+    Listener -->|Accept| E0 & E1 & EN
+    E0 & E1 & EN <-->|Enqueue / Dequeue| Queue
+    E0 & E1 & EN <-->|Datagram Messages| Socket
+    E0 & E1 & EN <-->|Alloc / Free| SHM
+    Queue <-->|Drain| W1 & W2 & WM
+    Socket <-->|Poll / Recv| W1 & W2 & WM
+    SHM <-->|Read / Write| W1 & W2 & WM
 ```
 
 ---

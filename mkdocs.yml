@@ -1,0 +1,82 @@
+site_name: FreeUnit Formal & Discrete-Event Model
+site_description: Mathematical, discrete-event simulation, and adversarial verification engine for FreeUnit (NGINX Unit)
+site_author: Andy Postnikov
+site_url: https://andypost.github.io/freeunit-model/
+repo_url: https://github.com/andypost/freeunit-model
+repo_name: andypost/freeunit-model
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.view
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Architecture:
+      - System Overview: architecture/overview.md
+      - Dual-Channel IPC & Invariants: architecture/dual-channel-ipc.md
+      - C Schema & ABI Mirroring: architecture/c-schema.md
+  - Simulation & Verification:
+      - Model A - Discrete-Event Simulation: models/model-a-simulation.md
+      - Model B - Adversarial Verification: models/model-b-verification.md
+  - Performance & Optimizations:
+      - K1 & K2 Micro-Optimizations: benchmarks/optimizations.md
+  - Strategic Roadmap: roadmap.md
+  - Machine & Bot Access:
+      - LLM Reference (llms.txt): llms.md

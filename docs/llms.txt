@@ -1,0 +1,28 @@
+# FreeUnit Model - LLM & Machine Reference (llms.txt)
+
+> This file follows the llms.txt format to provide AI agents, automated reasoners, and bots with an index and summary of the freeunit-model project.
+
+Project Summary:
+freeunit-model is a formal mathematical, discrete-event simulation, and adversarial verification engine for FreeUnit (NGINX Unit), a high-performance multi-threaded C application server. It models the asynchronous dual-channel IPC (shared-memory ring buffer vs Unix datagram socket), shared-memory 16 KiB chunk allocator under mmaps->mutex, Out-Of-Shared-Memory (OOSM) backpressure, web framework worker runtimes, and proves 6 core concurrency invariants.
+
+Repository: https://github.com/andypost/freeunit-model
+Documentation: https://andypost.github.io/freeunit-model/
+
+Core Documentation Index:
+- System Architecture: https://andypost.github.io/freeunit-model/architecture/overview/
+- Dual-Channel IPC & Invariants: https://andypost.github.io/freeunit-model/architecture/dual-channel-ipc/
+- C Schema & ABI Layouts: https://andypost.github.io/freeunit-model/architecture/c-schema/
+- Model A: Discrete-Event Simulation: https://andypost.github.io/freeunit-model/models/model-a-simulation/
+- Model B: Adversarial Verification: https://andypost.github.io/freeunit-model/models/model-b-verification/
+- Micro-Optimizations & Benchmarks: https://andypost.github.io/freeunit-model/benchmarks/optimizations/
+- Strategic Roadmap: https://andypost.github.io/freeunit-model/roadmap/
+
+Key Source Files:
+- src/unit_model/c_types.py: Bit-accurate ctypes struct mirrors (nxt_port_msg_t, nxt_app_queue_item_t, nxt_unit_request_t, nxt_unit_response_t)
+- src/unit_model/ast_extractor.py: Tree-sitter C AST parser extracting wire constants, enums, and struct fields from FreeUnit C source
+- src/unit_model/engine/event_loop.py: Discrete-event virtual clock with nanosecond priority scheduling
+- src/unit_model/engine/ipc_queue.py: Lockless circular ring buffer with atomic notified cmp-set flag
+- src/unit_model/engine/shm_pool.py: 16 KiB chunk allocator with mmaps->mutex and OOSM backpressure
+- src/unit_model/analyzer/invariants.py: Invariant verification engine evaluating the 6 core invariants
+- src/unit_model/analyzer/interleaver.py: Adversarial dual-channel timing jitter injector
+- src/unit_model/analyzer/fault_injector.py: Chaos injector simulating worker crashes and memory starvation

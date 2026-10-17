@@ -45,3 +45,6 @@ htmlcov/
 *.swo
 *~
 .DS_Store
+
+# Documentation build output
+site/
