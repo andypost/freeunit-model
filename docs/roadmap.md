@@ -37,8 +37,8 @@ flowchart TD
 
     Server <-->|Differential Testing &amp; C Patch Synthesis| ModelArch
 
-    classDef proc fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef model fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef proc fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef model fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class Server proc;
     class P1,P2,P3,P4,P5 model;
 ```
@@ -388,9 +388,9 @@ flowchart TD
     VERDICT -->|Match| PASS["PASS: Zero Regressions"]
     VERDICT -->|Divergence| MINIMIZE["Hypothesis Shrinking to Minimal Repro C Test"]
 
-    classDef blue fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef yellow fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
-    classDef green fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef blue fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef yellow fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class STIMULUS blue;
     class ORACLE,LIVE_TARGET yellow;
     class COMPARATOR,PASS green;
@@ -476,8 +476,8 @@ flowchart TD
         REMOTE_FREE -.->|Clear Bit| SLAB_E1
     end
 
-    classDef red fill:#fce8e6,stroke:#ea4335,stroke-width:2px;
-    classDef green fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef red fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fecaca;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class LEGACY,GLOBAL_MUTEX,GLOBAL_MEM red;
     class OPTIMIZED,SLAB_E0,SLAB_E1,CAS_ALLOC0,CAS_ALLOC1,REMOTE_FREE green;
 ```

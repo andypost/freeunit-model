@@ -24,8 +24,8 @@ flowchart TD
     CheckDone -->|Yes| Queue
     CheckDone -->|No| Done
 
-    classDef proc fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef loop fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef proc fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef loop fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class Init,Done proc;
     class Queue,Pop,Advance,Execute,EmitTrace,CheckDone loop;
 ```
@@ -62,8 +62,8 @@ flowchart LR
     Req --> Clone --> Execute --> Finish --> Resp
     Finish --> Reset --> Bootstrap
 
-    classDef blue fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef green fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef blue fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class Req,Resp blue;
     class Bootstrap,Clone,Execute,Finish,Reset green;
 ```

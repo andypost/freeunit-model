@@ -36,9 +36,9 @@ flowchart TD
     Loop --> Verification
     Verification --> Result
 
-    classDef blue fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef yellow fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
-    classDef green fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef blue fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef yellow fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class Config,Explorer,Loop blue;
     class Interleaver,Chaos yellow;
     class INV1,INV2,INV3,INV4,INV5,INV6,Result green;

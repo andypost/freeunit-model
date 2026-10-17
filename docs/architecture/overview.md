@@ -26,8 +26,8 @@ graph TD
     Main -->|Spawns &amp; Monitors| AppPoolB
     Controller -.->|Applies Config via IPC| Router
 
-    classDef proc fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
-    classDef pool fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef proc fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef pool fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class Main,Controller,Router proc;
     class AppPoolA,AppPoolB pool;
 ```

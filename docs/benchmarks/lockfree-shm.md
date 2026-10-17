@@ -43,8 +43,8 @@ flowchart TD
         REMOTE_FREE -.->|Clear Bit| SLAB1
     end
 
-    classDef red fill:#fce8e6,stroke:#ea4335,stroke-width:2px;
-    classDef green fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+    classDef red fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fecaca;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
     class LEGACY,GLOBAL_MUTEX,GLOBAL_MEM red;
     class PROPOSED,SLAB0,SLAB1,CAS0,CAS1,REMOTE_FREE green;
 ```

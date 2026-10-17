@@ -17,48 +17,89 @@ A bit-accurate formal mathematical, discrete-event simulation, and adversarial v
 
 ## Architecture Overview
 
-FreeUnit processes HTTP traffic across decoupled process boundaries using a dual-channel IPC architecture:
+FreeUnit processes HTTP traffic across decoupled process boundaries using a multi-threaded router and worker process pool communicating over a dual-channel IPC mechanism:
 
 ```mermaid
 flowchart TD
-    subgraph Clients["Client Connections"]
-        C1["Client 1 (TCP/TLS)"]
-        C2["Client 2 (TCP/TLS)"]
-        C3["Client K (TCP/TLS)"]
+    subgraph Clients["1. Inbound Client Traffic"]
+        C1["Client 1 (HTTP/1.1)"]
+        C2["Client 2 (HTTP/2)"]
+        C3["Client K (WebSocket / TLS)"]
     end
 
-    subgraph Kernel["Linux Kernel Network Stack"]
-        Listener["Listener (*:8080)<br/>EPOLLEXCLUSIVE Accept"]
+    subgraph Kernel["2. Linux Kernel Network Stack"]
+        Listener["Kernel Listener (*:8080)<br/>EPOLLEXCLUSIVE Accept Distribution"]
     end
 
-    subgraph Router["Router Multi-Threaded Process"]
+    subgraph Router["3. Router Data Plane (Multi-Threaded)"]
         direction TB
-        E0["Router Engine 0<br/>(nxt_event_engine_t)"]
-        E1["Router Engine 1<br/>(nxt_event_engine_t)"]
-        EN["Router Engine N<br/>(nxt_event_engine_t)"]
+        RE["Router Engines (0 .. N)<br/>nxt_event_engine_t Event Loop"]
     end
 
-    subgraph IPC["Dual-Channel IPC Transport"]
+    subgraph IPC["4. Dual-Channel IPC Subsystem"]
         direction LR
-        Queue["App Queue Ring Buffer<br/>(Lockless nxt_app_queue_t,<br/>descriptors &le; 31B)"]
-        Socket["Unix Datagram Sockets<br/>(Socket pairs, SCM_RIGHTS,<br/>ACK, DOORDEL, Fallback)"]
-        SHM["Shared Memory Pool<br/>(16 KiB chunks, mmaps-&gt;mutex,<br/>OOSM backpressure)"]
+        SHM[("Shared Memory Pool<br/>16 KiB Chunks / mmaps")]
+        Queue["App Queue Ring Buffer<br/>Lockless nxt_app_queue_t (&le; 31B)"]
+        Socket["Unix Datagram Sockets<br/>Doorbells &amp; Control Messages"]
     end
 
-    subgraph Workers["App Worker Processes (libunit + SAPI)"]
-        W1["Worker 1<br/>(PHP / Python / Go)"]
-        W2["Worker 2<br/>(PHP / Python / Go)"]
-        WM["Worker M<br/>(PHP / Python / Go)"]
+    subgraph Workers["5. Application Worker Pool (libunit)"]
+        direction LR
+        W1["Worker 1 (PHP)"]
+        W2["Worker 2 (Python)"]
+        WM["Worker M (Go / Wasm)"]
     end
 
-    C1 & C2 & C3 --> Listener
-    Listener -->|Accept| E0 & E1 & EN
-    E0 & E1 & EN <-->|Enqueue / Dequeue| Queue
-    E0 & E1 & EN <-->|Datagram Messages| Socket
-    E0 & E1 & EN <-->|Alloc / Free| SHM
-    Queue <-->|Drain| W1 & W2 & WM
-    Socket <-->|Poll / Recv| W1 & W2 & WM
-    SHM <-->|Read / Write| W1 & W2 & WM
+    C1 & C2 & C3 -->|"(1) Connect"| Listener
+    Listener -->|"(2) EPOLLEXCLUSIVE Wake"| RE
+    RE -->|"(3a) Buffer Payload"| SHM
+    RE -->|"(3b) Enqueue Req"| Queue
+    RE -->|"(3c) Ring Doorbell"| Socket
+    Socket -.->|"(4a) Wake Signal"| W1 & W2 & WM
+    Queue -->|"(4b) FIFO Drain"| W1 & W2 & WM
+    SHM <-->|"(4c) Read Req / Write Resp"| W1 & W2 & WM
+    W1 & W2 & WM -->|"(5) Completion Signal"| Socket
+    Socket -->|"(6) Response Ready"| RE
+    RE -->|"(7) Stream to Client"| C1 & C2 & C3
+
+    classDef blue fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef yellow fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
+    class RE blue;
+    class Queue,Socket,SHM yellow;
+    class W1,W2,WM green;
+```
+
+### End-to-End Request Lifecycle & Event Ordering
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Inbound Client
+    participant Listener as Kernel Listener (*:8080)
+    participant Router as Router Engine (nxt_event_engine_t)
+    participant SHM as Shared Memory Pool
+    participant Queue as App Queue (Ring Buffer)
+    participant Socket as Unix Datagram Socket
+    participant Worker as Worker Process (libunit)
+
+    Client->>Listener: 1. TCP Connection & TLS Handshake
+    Listener->>Router: 2. EPOLLEXCLUSIVE Accept (single engine woken)
+    Router->>SHM: 3a. Allocate Chunk & Store Request Body
+    Router->>Queue: 3b. Enqueue Request Descriptor (<= 31B)
+    Router->>Socket: 3c. Send READ_QUEUE Doorbell Datagram
+    Socket-->>Worker: 4a. poll() wakes on Private Socket
+    rect rgb(30, 41, 59)
+        Note over Worker: Barrier: Drain Queue Before Socket Fallback
+        Worker->>Queue: 4b. Dequeue Request Descriptor (FIFO order)
+        Worker->>SHM: 4c. Read Request Payload
+        Worker->>Worker: 4d. Execute Application SAPI Handler (PHP/Python/Go)
+        Worker->>SHM: 4e. Write Response Body
+    end
+    Worker->>Socket: 5. Send Completion / Headers ACK
+    Socket->>Router: 6. Response Ready Notification
+    Router->>SHM: 7a. Read Response & Release Chunk
+    Router->>Client: 7b. Stream Response Bytes to Client
 ```
 
 ---

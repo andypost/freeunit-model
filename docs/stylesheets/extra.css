@@ -1,0 +1,236 @@
+/* ==========================================================================
+   Mermaid Diagram Enhancements & Dark/Light Theme Contrast
+   ========================================================================== */
+
+/* Edge label readability: ensure solid background so crossing lines don't collide */
+.mermaid .edgeLabel {
+  background-color: var(--md-default-bg-color, #ffffff) !important;
+  color: var(--md-default-fg-color, #0f172a) !important;
+  padding: 3px 8px !important;
+  border-radius: 4px !important;
+  font-size: 0.82rem !important;
+  font-weight: 500 !important;
+  border: 1px solid var(--md-default-fg-color--lightest, #cbd5e1) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .edgeLabel {
+  background-color: #1e222b !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+
+/* Base node text styling */
+.mermaid .node .label {
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+/* --- Theme-Adaptive Node Classes (Light Mode) --- */
+[data-md-color-scheme="default"] .mermaid .node.blue rect,
+[data-md-color-scheme="default"] .mermaid .node.blue polygon,
+[data-md-color-scheme="default"] .mermaid .node.proc rect,
+[data-md-color-scheme="default"] .mermaid .node.proc polygon {
+  fill: #eff6ff !important;
+  stroke: #2563eb !important;
+}
+[data-md-color-scheme="default"] .mermaid .node.blue .label text,
+[data-md-color-scheme="default"] .mermaid .node.blue .label span,
+[data-md-color-scheme="default"] .mermaid .node.proc .label text,
+[data-md-color-scheme="default"] .mermaid .node.proc .label span {
+  fill: #1e3a8a !important;
+  color: #1e3a8a !important;
+}
+
+[data-md-color-scheme="default"] .mermaid .node.green rect,
+[data-md-color-scheme="default"] .mermaid .node.green polygon,
+[data-md-color-scheme="default"] .mermaid .node.worker rect,
+[data-md-color-scheme="default"] .mermaid .node.worker polygon,
+[data-md-color-scheme="default"] .mermaid .node.pool rect,
+[data-md-color-scheme="default"] .mermaid .node.pool polygon,
+[data-md-color-scheme="default"] .mermaid .node.loop rect,
+[data-md-color-scheme="default"] .mermaid .node.loop polygon,
+[data-md-color-scheme="default"] .mermaid .node.model rect,
+[data-md-color-scheme="default"] .mermaid .node.model polygon {
+  fill: #f0fdf4 !important;
+  stroke: #16a34a !important;
+}
+[data-md-color-scheme="default"] .mermaid .node.green .label text,
+[data-md-color-scheme="default"] .mermaid .node.green .label span,
+[data-md-color-scheme="default"] .mermaid .node.worker .label text,
+[data-md-color-scheme="default"] .mermaid .node.worker .label span,
+[data-md-color-scheme="default"] .mermaid .node.pool .label text,
+[data-md-color-scheme="default"] .mermaid .node.pool .label span,
+[data-md-color-scheme="default"] .mermaid .node.loop .label text,
+[data-md-color-scheme="default"] .mermaid .node.loop .label span,
+[data-md-color-scheme="default"] .mermaid .node.model .label text,
+[data-md-color-scheme="default"] .mermaid .node.model .label span {
+  fill: #14532d !important;
+  color: #14532d !important;
+}
+
+[data-md-color-scheme="default"] .mermaid .node.yellow rect,
+[data-md-color-scheme="default"] .mermaid .node.yellow polygon,
+[data-md-color-scheme="default"] .mermaid .node.ipc rect,
+[data-md-color-scheme="default"] .mermaid .node.ipc polygon {
+  fill: #fefce8 !important;
+  stroke: #ca8a04 !important;
+}
+[data-md-color-scheme="default"] .mermaid .node.yellow .label text,
+[data-md-color-scheme="default"] .mermaid .node.yellow .label span,
+[data-md-color-scheme="default"] .mermaid .node.ipc .label text,
+[data-md-color-scheme="default"] .mermaid .node.ipc .label span {
+  fill: #713f12 !important;
+  color: #713f12 !important;
+}
+
+[data-md-color-scheme="default"] .mermaid .node.red rect,
+[data-md-color-scheme="default"] .mermaid .node.red polygon {
+  fill: #fef2f2 !important;
+  stroke: #dc2626 !important;
+}
+[data-md-color-scheme="default"] .mermaid .node.red .label text,
+[data-md-color-scheme="default"] .mermaid .node.red .label span {
+  fill: #7f1d1d !important;
+  color: #7f1d1d !important;
+}
+
+/* --- Theme-Adaptive Node Classes (Dark Mode - Slate) --- */
+[data-md-color-scheme="slate"] .mermaid .node.blue rect,
+[data-md-color-scheme="slate"] .mermaid .node.blue polygon,
+[data-md-color-scheme="slate"] .mermaid .node.proc rect,
+[data-md-color-scheme="slate"] .mermaid .node.proc polygon {
+  fill: #172554 !important;
+  stroke: #3b82f6 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .node.blue .label text,
+[data-md-color-scheme="slate"] .mermaid .node.blue .label span,
+[data-md-color-scheme="slate"] .mermaid .node.proc .label text,
+[data-md-color-scheme="slate"] .mermaid .node.proc .label span {
+  fill: #bfdbfe !important;
+  color: #bfdbfe !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .node.green rect,
+[data-md-color-scheme="slate"] .mermaid .node.green polygon,
+[data-md-color-scheme="slate"] .mermaid .node.worker rect,
+[data-md-color-scheme="slate"] .mermaid .node.worker polygon,
+[data-md-color-scheme="slate"] .mermaid .node.pool rect,
+[data-md-color-scheme="slate"] .mermaid .node.pool polygon,
+[data-md-color-scheme="slate"] .mermaid .node.loop rect,
+[data-md-color-scheme="slate"] .mermaid .node.loop polygon,
+[data-md-color-scheme="slate"] .mermaid .node.model rect,
+[data-md-color-scheme="slate"] .mermaid .node.model polygon {
+  fill: #064e3b !important;
+  stroke: #10b981 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .node.green .label text,
+[data-md-color-scheme="slate"] .mermaid .node.green .label span,
+[data-md-color-scheme="slate"] .mermaid .node.worker .label text,
+[data-md-color-scheme="slate"] .mermaid .node.worker .label span,
+[data-md-color-scheme="slate"] .mermaid .node.pool .label text,
+[data-md-color-scheme="slate"] .mermaid .node.pool .label span,
+[data-md-color-scheme="slate"] .mermaid .node.loop .label text,
+[data-md-color-scheme="slate"] .mermaid .node.loop .label span,
+[data-md-color-scheme="slate"] .mermaid .node.model .label text,
+[data-md-color-scheme="slate"] .mermaid .node.model .label span {
+  fill: #a7f3d0 !important;
+  color: #a7f3d0 !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .node.yellow rect,
+[data-md-color-scheme="slate"] .mermaid .node.yellow polygon,
+[data-md-color-scheme="slate"] .mermaid .node.ipc rect,
+[data-md-color-scheme="slate"] .mermaid .node.ipc polygon {
+  fill: #451a03 !important;
+  stroke: #f59e0b !important;
+}
+[data-md-color-scheme="slate"] .mermaid .node.yellow .label text,
+[data-md-color-scheme="slate"] .mermaid .node.yellow .label span,
+[data-md-color-scheme="slate"] .mermaid .node.ipc .label text,
+[data-md-color-scheme="slate"] .mermaid .node.ipc .label span {
+  fill: #fde68a !important;
+  color: #fde68a !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .node.red rect,
+[data-md-color-scheme="slate"] .mermaid .node.red polygon {
+  fill: #450a0a !important;
+  stroke: #ef4444 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .node.red .label text,
+[data-md-color-scheme="slate"] .mermaid .node.red .label span {
+  fill: #fecaca !important;
+  color: #fecaca !important;
+}
+
+/* Subgraphs / Clusters */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+  fill: #1e222b !important;
+  stroke: #334155 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .cluster text {
+  fill: #e2e8f0 !important;
+}
+
+/* ==========================================================================
+   Sequence Diagram Theme Styling
+   ========================================================================== */
+
+/* Light mode sequence diagrams */
+[data-md-color-scheme="default"] .mermaid .actor {
+  stroke: #2563eb !important;
+  fill: #eff6ff !important;
+}
+[data-md-color-scheme="default"] .mermaid text.actor {
+  fill: #1e3a8a !important;
+  font-weight: 600 !important;
+}
+[data-md-color-scheme="default"] .mermaid .messageLine0,
+[data-md-color-scheme="default"] .mermaid .messageLine1 {
+  stroke: #475569 !important;
+}
+[data-md-color-scheme="default"] .mermaid .messageText {
+  fill: #0f172a !important;
+  stroke: none !important;
+  font-weight: 500 !important;
+}
+[data-md-color-scheme="default"] .mermaid .note {
+  fill: #fefce8 !important;
+  stroke: #ca8a04 !important;
+}
+[data-md-color-scheme="default"] .mermaid .noteText {
+  fill: #713f12 !important;
+}
+
+/* Dark mode sequence diagrams (Slate) */
+[data-md-color-scheme="slate"] .mermaid .actor {
+  stroke: #3b82f6 !important;
+  fill: #172554 !important;
+}
+[data-md-color-scheme="slate"] .mermaid text.actor {
+  fill: #bfdbfe !important;
+  font-weight: 600 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .actor-line {
+  stroke: #334155 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .messageLine0,
+[data-md-color-scheme="slate"] .mermaid .messageLine1 {
+  stroke: #94a3b8 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .messageText {
+  fill: #f1f5f9 !important;
+  stroke: none !important;
+  font-weight: 500 !important;
+}
+[data-md-color-scheme="slate"] .mermaid .note {
+  fill: #2a1f0a !important;
+  stroke: #f59e0b !important;
+}
+[data-md-color-scheme="slate"] .mermaid .noteText {
+  fill: #fde68a !important;
+}
+[data-md-color-scheme="slate"] .mermaid .sequenceNumber {
+  fill: #ffffff !important;
+}
+
