@@ -96,6 +96,10 @@ class SimEventLoop:
         )
         self._trace.append(rec)
 
+    @property
+    def trace(self) -> List[TraceRecord]:
+        return self._trace
+
     def get_trace(self) -> List[TraceRecord]:
         return list(self._trace)
 

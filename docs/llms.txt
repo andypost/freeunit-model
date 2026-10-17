@@ -14,7 +14,10 @@ Core Documentation Index:
 - C Schema & ABI Layouts: https://andypost.github.io/freeunit-model/architecture/c-schema/
 - Model A: Discrete-Event Simulation: https://andypost.github.io/freeunit-model/models/model-a-simulation/
 - Model B: Adversarial Verification: https://andypost.github.io/freeunit-model/models/model-b-verification/
+- Differential & Conformance Testing: https://andypost.github.io/freeunit-model/verification/conformance/
+- Telemetry Replay & Root-Cause Analysis: https://andypost.github.io/freeunit-model/verification/replay/
 - Micro-Optimizations & Benchmarks: https://andypost.github.io/freeunit-model/benchmarks/optimizations/
+- Lock-Free SHM Slabs: https://andypost.github.io/freeunit-model/benchmarks/lockfree-shm/
 - Strategic Roadmap: https://andypost.github.io/freeunit-model/roadmap/
 
 Key Source Files:
@@ -23,6 +26,13 @@ Key Source Files:
 - src/unit_model/engine/event_loop.py: Discrete-event virtual clock with nanosecond priority scheduling
 - src/unit_model/engine/ipc_queue.py: Lockless circular ring buffer with atomic notified cmp-set flag
 - src/unit_model/engine/shm_pool.py: 16 KiB chunk allocator with mmaps->mutex and OOSM backpressure
+- src/unit_model/conformance/tandem_runner.py: Tandem execution harness comparing simulated and live FreeUnit C binaries
+- src/unit_model/conformance/comparator.py: Wire and state differential comparator
+- src/unit_model/replay/ingest.py: OTel, USDT probe, and debug log telemetry ingestion pipeline
+- src/unit_model/replay/replayer.py: Deterministic trace replayer and anomaly detector
+- src/unit_model/replay/analyzer.py: Critical race window isolator and C litmus test generator
+- src/unit_model/synthesis/k1_doorbell_proof.py: Mathematical proof and combinatorial explorer of K1 bounded doorbell
+- src/unit_model/synthesis/lockfree_shm_synth.py: Lock-free per-engine SHM slab allocation eliminating global mmaps->mutex
 - src/unit_model/analyzer/invariants.py: Invariant verification engine evaluating the 6 core invariants
 - src/unit_model/analyzer/interleaver.py: Adversarial dual-channel timing jitter injector
 - src/unit_model/analyzer/fault_injector.py: Chaos injector simulating worker crashes and memory starvation

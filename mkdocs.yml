@@ -75,8 +75,11 @@ nav:
   - Simulation & Verification:
       - Model A - Discrete-Event Simulation: models/model-a-simulation.md
       - Model B - Adversarial Verification: models/model-b-verification.md
+      - Differential & Conformance Testing: verification/conformance.md
+      - Telemetry Replay & Root-Cause Analysis: verification/replay.md
   - Performance & Optimizations:
       - K1 & K2 Micro-Optimizations: benchmarks/optimizations.md
+      - Lock-Free SHM Slabs: benchmarks/lockfree-shm.md
   - Strategic Roadmap: roadmap.md
   - Machine & Bot Access:
       - LLM Reference (llms.txt): llms.md
