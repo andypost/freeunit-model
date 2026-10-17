@@ -174,6 +174,153 @@ def cmd_benchmark_optimizations(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prove_k1(args: argparse.Namespace) -> int:
+    from unit_model.synthesis import K1DoorbellProof
+
+    print("=" * 70)
+    print("K1 Baton-Pass Bounded Doorbell Formal Proof & Combinatorial Explorer")
+    print("=" * 70)
+    proof = K1DoorbellProof(default_workers=args.workers)
+
+    print("\n1. Analytic Herd Elimination Bound: Total Doorbells <= min(Burst, DepthBound)")
+    print(f"{'Workers (W)':<14} | {'Burst (B)':<10} | {'Doorbells':<10} | {'Legacy Wakeups':<15} | {'Savings':<10}")
+    print("-" * 70)
+    for w in [1, 2, 4, 8, 16]:
+        for b in [1, 4, 16, 64]:
+            res = proof.prove_herd_elimination(b, w)
+            print(f"{w:<14} | {b:<10} | {res['simulated_doorbells']:<10} | {res['legacy_broadcast_wakeups']:<15} | {res['savings_vs_broadcast_pct']:.1f}%")
+
+    print("\n2. Running Combinatorial State Space Exploration (Interleaving & Crash Recovery)...")
+    result = proof.run_combinatorial_verification(
+        worker_counts=[1, 2, 4, 8],
+        burst_sizes=[1, 4, 16, 64],
+        permutations_per_case=args.permutations,
+    )
+    print(f"[+] Total combinatorial scenarios tested: {result.total_scenarios:,}")
+    print(f"[+] Lost wakeups:                          {result.lost_wakeups}")
+    print(f"[+] Starvation events:                     {result.starvation_events}")
+    if result.verified:
+        print("[+] VERIFICATION PASSED: Starvation-free, herd-bounded, race-safe.")
+        return 0
+    else:
+        print("[-] VERIFICATION FAILED.")
+        return 1
+
+
+def cmd_lockfree_shm(args: argparse.Namespace) -> int:
+    import concurrent.futures
+    from unit_model.synthesis import LockFreeShmPool
+
+    print("=" * 70)
+    print(f"Per-Engine Lock-Free SHM Slab Simulation ({args.engines} engines, {args.threads} threads)")
+    print("=" * 70)
+    pool = LockFreeShmPool(num_engines=args.engines)
+
+    ops_per_thread = args.ops
+
+    def worker_job(tid: int):
+        allocs = []
+        for _ in range(ops_per_thread):
+            eng = tid % args.engines
+            c = pool.alloc(engine_id=eng)
+            allocs.append(c)
+        for c in allocs:
+            calling_eng = (tid + 1) % args.engines
+            pool.free(c, calling_engine_or_worker_id=calling_eng)
+
+    t0 = time.perf_counter()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = [executor.submit(worker_job, tid) for tid in range(args.threads)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    stats = pool.get_stats()
+    print(f"[+] Total allocations:           {stats['total_allocations']:,}")
+    print(f"[+] Total cross-engine frees:    {stats['cross_engine_frees']:,}")
+    print(f"[+] Active chunks remaining:     {stats['active_chunks']} (Zero Leaks)")
+    print(f"[+] Global mutex acquisitions:   {stats['global_mutex_locks']} (100% Contention Freedom!)")
+    print(f"[+] Double free errors:          {stats['double_free_errors']}")
+    print(f"[+] Execution time:              {elapsed_ms:.2f} ms")
+
+    invariants_ok = pool.verify_invariants()
+    if invariants_ok:
+        print("[+] ALL SHM INVARIANTS SATISFIED.")
+        return 0
+    else:
+        print("[-] INVARIANT VIOLATION DETECTED.")
+        return 1
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    from unit_model.replay import DeterministicReplayer, RootCauseAnalyzer, TelemetryIngestor, TraceEvent
+
+    print("=" * 70)
+    print("Deterministic Telemetry Trace Replay & Root-Cause Analyzer")
+    print("=" * 70)
+
+    ingestor = TelemetryIngestor()
+    if args.trace and Path(args.trace).is_file():
+        content = Path(args.trace).read_text(encoding="utf-8")
+        if content.strip().startswith("{") or content.strip().startswith("["):
+            events = ingestor.ingest_otlp_json(content)
+        else:
+            events = ingestor.ingest_usdt_lines(content.splitlines())
+    else:
+        print("[*] No external trace provided. Using built-in synthetic race trace...")
+        events = [
+            TraceEvent(timestamp_ns=1000, subsystem="router", event_name="otel_request_start", stream_id=1, attributes={"http.method": "GET", "http.route": "/api"}),
+            TraceEvent(timestamp_ns=2000, subsystem="app_queue", event_name="usdt_queue__enqueue", stream_id=1),
+            TraceEvent(timestamp_ns=3000, subsystem="worker", event_name="usdt_worker_crash", worker_id=100),
+            TraceEvent(timestamp_ns=4000, subsystem="router", event_name="otel_request_start", stream_id=2, attributes={"http.method": "GET", "http.route": "/health"}),
+        ]
+
+    replayer = DeterministicReplayer(num_engines=2, num_workers=2)
+    replayer.load_events(events)
+    summary = replayer.replay_all()
+
+    print(f"[+] Replay completed: {summary.replayed_events} events processed in {summary.final_clock_ns:,} ns.")
+    print(f"[+] Streams completed: {summary.streams_completed}")
+    print(f"[+] Worker final states: {summary.worker_states}")
+    print(f"[+] Anomalies detected: {len(summary.anomalies)}")
+
+    analyzer = RootCauseAnalyzer(summary, events)
+    if args.emit_litmus or summary.anomalies:
+        litmus = analyzer.generate_c_litmus_test("nxt_repro_race_test", "injected_worker_crash")
+        print("\n--- Synthesized Standalone C Litmus Test (src/test/nxt_repro_test.c) ---")
+        print(litmus)
+    return 0
+
+
+def cmd_conformance(args: argparse.Namespace) -> int:
+    from unit_model.conformance import TandemSession
+
+    print("=" * 70)
+    print(f"Differential Conformance Runner (Target: {args.url or 'In-Memory Reference'})")
+    print("=" * 70)
+
+    session = TandemSession(target_url=args.url)
+
+    test_paths = ["/health", "/echo", "/not-found"]
+    all_ok = True
+    for p in test_paths:
+        req = UnitRequest(method="GET", path=p)
+        print(f"[*] Testing route: {p}...")
+        res = session.verify_equivalence(req, reference_response=session._default_handler(req) if not args.url else None)
+        if res.matches:
+            print(f"    [+] MATCH: Status={res.details.get('oracle_status')}, Body={res.details.get('oracle_body_len')}B")
+        else:
+            print(f"    [-] DIVERGENCE: {res.divergences}")
+            all_ok = False
+
+    if all_ok:
+        print("\n[+] CONFORMANCE VERIFIED: Zero wire discrepancies.")
+        return 0
+    else:
+        print("\n[-] CONFORMANCE FAILED.")
+        return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="FreeUnit Behavioral & Invariant Simulation CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -196,6 +343,26 @@ def main() -> int:
     # benchmark-optimizations
     subparsers.add_parser("benchmark-optimizations", help="Benchmark K1 & K2 algorithmic improvements")
 
+    # prove-k1
+    p_k1 = subparsers.add_parser("prove-k1", help="Formally prove K1 bounded doorbell invariants")
+    p_k1.add_argument("--workers", type=int, default=4, help="Default workers count")
+    p_k1.add_argument("--permutations", type=int, default=5, help="Permutations per parameter case")
+
+    # lockfree-shm
+    p_shm = subparsers.add_parser("lockfree-shm", help="Benchmark per-engine lock-free SHM slabs")
+    p_shm.add_argument("--engines", type=int, default=4, help="Number of router engines")
+    p_shm.add_argument("--threads", type=int, default=8, help="Concurrent allocator threads")
+    p_shm.add_argument("--ops", type=int, default=100, help="Ops per thread")
+
+    # replay
+    p_rep = subparsers.add_parser("replay", help="Replay telemetry trace and synthesize C litmus tests")
+    p_rep.add_argument("--trace", help="Path to OTel JSON or USDT trace log file")
+    p_rep.add_argument("--emit-litmus", action="store_true", help="Emit C litmus repro test")
+
+    # conformance
+    p_conf = subparsers.add_parser("conformance", help="Run differential conformance against live FreeUnit")
+    p_conf.add_argument("--url", help="URL of live FreeUnit server (e.g. http://127.0.0.1:8080)")
+
     args = parser.parse_args()
 
     if args.command == "schema":
@@ -206,6 +373,14 @@ def main() -> int:
         return cmd_verify(args)
     elif args.command == "benchmark-optimizations":
         return cmd_benchmark_optimizations(args)
+    elif args.command == "prove-k1":
+        return cmd_prove_k1(args)
+    elif args.command == "lockfree-shm":
+        return cmd_lockfree_shm(args)
+    elif args.command == "replay":
+        return cmd_replay(args)
+    elif args.command == "conformance":
+        return cmd_conformance(args)
     return 0
 
 

@@ -19,6 +19,7 @@ Core Documentation Index:
 - Micro-Optimizations & Benchmarks: https://andypost.github.io/freeunit-model/benchmarks/optimizations/
 - Lock-Free SHM Slabs: https://andypost.github.io/freeunit-model/benchmarks/lockfree-shm/
 - Strategic Roadmap: https://andypost.github.io/freeunit-model/roadmap/
+- Formal Model Announcement Article: https://andypost.github.io/freeunit-model/blog/announcing-freeunit-model/
 
 Key Source Files:
 - src/unit_model/c_types.py: Bit-accurate ctypes struct mirrors (nxt_port_msg_t, nxt_app_queue_item_t, nxt_unit_request_t, nxt_unit_response_t)

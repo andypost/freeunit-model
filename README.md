@@ -9,9 +9,9 @@
 A bit-accurate formal mathematical, discrete-event simulation, and adversarial verification engine for **[FreeUnit](https://github.com/freeunitorg/freeunit)** (the high-performance, multi-threaded C application server and community LTS fork of NGINX Unit).
 
 📖 **Online Documentation**: [https://andypost.github.io/freeunit-model/](https://andypost.github.io/freeunit-model/)  
+📰 **Announcement Article**: [Formal Model Announcement](https://andypost.github.io/freeunit-model/blog/announcing-freeunit-model/)  
 🤖 **Machine/LLM Index**: [`llms.txt`](https://andypost.github.io/freeunit-model/llms.txt)  
 🗺️ **Strategic Roadmap**: [Strategic Roadmap Chapter](https://andypost.github.io/freeunit-model/roadmap/)
-
 
 ---
 
@@ -127,7 +127,7 @@ uv run --with pytest pytest -v
 pytest -v
 ```
 
-All 9 regression scenarios verify core invariants across dual-channel message inversion, worker crashes, OOSM recovery, framework state isolation, and scheduled synthetic runs.
+All 52 regression scenarios verify core invariants across dual-channel message inversion, worker crashes, OOSM recovery, framework state isolation, HTTP/2 multiplexing, WebSocket framing, TLS 0-RTT resumption, epoll edge-triggered FSM, K1 doorbell bounds, lock-free SHM slabs, and scheduled synthetic runs.
 
 ---
 
@@ -177,7 +177,35 @@ FreeUnit Optimization Evaluation (Baseline vs K1 Doorbell & K2 Framing)
 ======================================================================
 ```
 
-### 4. C AST Schema Extraction
+### 4. K1 Doorbell Formal Proof & Combinatorial Explorer
+Analytically prove herd bounds $\le \min(\text{burst}, W)$ and run combinatorial state-space exploration:
+
+```bash
+python3 -m unit_model.cli prove-k1 --workers 4 --permutations 5
+```
+
+### 5. Lock-Free Per-Engine SHM Slabs Benchmark
+Benchmark concurrent lock-free allocation/deallocation across router engines with 0 global mutex acquisitions:
+
+```bash
+python3 -m unit_model.cli lockfree-shm --engines 4 --threads 8 --ops 100
+```
+
+### 6. Telemetry Replay & C Litmus Test Generation
+Replay production OpenTelemetry spans or USDT traces, detect anomalies, and synthesize standalone C reproduction tests:
+
+```bash
+python3 -m unit_model.cli replay --emit-litmus [--trace /path/to/trace.json]
+```
+
+### 7. Differential Conformance Runner
+Run differential conformance assertions between Model A and live FreeUnit:
+
+```bash
+python3 -m unit_model.cli conformance [--url http://127.0.0.1:8080]
+```
+
+### 8. C AST Schema Extraction
 Extract and validate struct layouts against the C compiler (requires `tree-sitter` and `tree-sitter-c`):
 
 ```bash
