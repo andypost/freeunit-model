@@ -26,7 +26,7 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Run pytest
-      run: uv run --python ${{ matrix.python-version }} --with pytest pytest -v
+      run: uv run --python ${{ matrix.python-version }} --with pytest --with hypothesis pytest -v
 
     - name: Test CLI simulation
       run: uv run --python ${{ matrix.python-version }} python -m unit_model.cli simulate --requests 50 --workers 4

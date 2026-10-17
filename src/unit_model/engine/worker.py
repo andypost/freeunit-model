@@ -79,6 +79,10 @@ class AppWorker:
             Callable[[int, PortMsg, bytes, int], None]
         ] = None
 
+    @property
+    def is_alive(self) -> bool:
+        return self.state != WorkerState.DEAD
+
     def on_socket_readable(self) -> None:
         """Called when datagram arrives on worker socket."""
         if self.state in (WorkerState.DEAD, WorkerState.SHUTTING_DOWN):

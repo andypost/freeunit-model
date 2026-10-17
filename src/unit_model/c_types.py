@@ -295,18 +295,18 @@ class HttpHeaderField:
 
 @dataclass
 class UnitRequest:
-    method: str
-    version: str
-    remote: str
-    local_addr: str
-    local_port: str
-    tls: bool
-    websocket_handshake: bool
-    app_target: int
-    server_name: str
-    target: str
-    path: str
-    query: str
+    method: str = "GET"
+    version: str = "HTTP/1.1"
+    remote: str = "127.0.0.1"
+    local_addr: str = "127.0.0.1"
+    local_port: str = "8080"
+    tls: bool = False
+    websocket_handshake: bool = False
+    app_target: int = 0
+    server_name: str = "localhost"
+    target: str = "/"
+    path: str = "/"
+    query: str = ""
     headers: List[HttpHeaderField] = field(default_factory=list)
     preread_content: bytes = b""
     content_length: int = 0

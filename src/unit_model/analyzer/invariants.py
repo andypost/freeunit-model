@@ -54,6 +54,7 @@ class InvariantChecker:
 
     def verify_trace(self, trace: List[TraceRecord]) -> List[InvariantViolation]:
         """Analyzes execution trace for safety violations."""
+        self.violations.clear()
         active_streams: Set[int] = set()
         completed_streams: Set[int] = set()
         closed_conns: Set[int] = set()
