@@ -397,6 +397,78 @@ class UnitRequest:
 
         return bytes(buf)
 
+    @classmethod
+    def deserialize(cls, data: bytes) -> UnitRequest:
+        """Deserializes a byte buffer containing CNxtUnitRequest into a UnitRequest."""
+        req_hdr_size = ctypes.sizeof(CNxtUnitRequest)
+        if len(data) < req_hdr_size:
+            return cls(method="GET", path="/")
+
+        creq = CNxtUnitRequest.from_buffer_copy(data[:req_hdr_size])
+
+        def get_str(length: int, sptr_offset: int, field_def_offset: int) -> str:
+            if length == 0:
+                return ""
+            abs_off = field_def_offset + sptr_offset
+            if abs_off + length > len(data):
+                return ""
+            return data[abs_off : abs_off + length].decode("utf-8", errors="replace")
+
+        method = get_str(creq.method_length, creq.method_offset, CNxtUnitRequest.method_offset.offset) or "GET"
+        version = get_str(creq.version_length, creq.version_offset, CNxtUnitRequest.version_offset.offset) or "HTTP/1.1"
+        remote = get_str(creq.remote_length, creq.remote_offset, CNxtUnitRequest.remote_offset.offset) or "127.0.0.1"
+        local_addr = get_str(creq.local_addr_length, creq.local_addr_offset, CNxtUnitRequest.local_addr_offset.offset) or "127.0.0.1"
+        local_port = get_str(creq.local_port_length, creq.local_port_offset, CNxtUnitRequest.local_port_offset.offset) or "8080"
+        server_name = get_str(creq.server_name_length, creq.server_name_offset, CNxtUnitRequest.server_name_offset.offset) or "localhost"
+        target = get_str(creq.target_length, creq.target_offset, CNxtUnitRequest.target_offset.offset) or "/"
+        path = get_str(creq.path_length, creq.path_offset, CNxtUnitRequest.path_offset.offset) or "/"
+        query = get_str(creq.query_length, creq.query_offset, CNxtUnitRequest.query_offset.offset)
+
+        preread = b""
+        if creq.preread_content_offset:
+            abs_pc = CNxtUnitRequest.preread_content_offset.offset + creq.preread_content_offset
+            content_len = creq.content_length or 0
+            if abs_pc + content_len <= len(data):
+                preread = data[abs_pc : abs_pc + content_len]
+
+        fields: List[HttpHeaderField] = []
+        field_size = ctypes.sizeof(CNxtUnitField)
+        offset = req_hdr_size
+        for _ in range(creq.fields_count):
+            if offset + field_size > len(data):
+                break
+            cf = CNxtUnitField.from_buffer_copy(data[offset : offset + field_size])
+            name_abs = offset + CNxtUnitField.name_offset.offset + cf.name_offset
+            val_abs = offset + CNxtUnitField.value_offset.offset + cf.value_offset
+            name = data[name_abs : name_abs + cf.name_length].decode("utf-8", errors="replace") if name_abs + cf.name_length <= len(data) else ""
+            val = data[val_abs : val_abs + cf.value_length].decode("utf-8", errors="replace") if val_abs + cf.value_length <= len(data) else ""
+            fields.append(HttpHeaderField(
+                name=name,
+                value=val,
+                hash=cf.hash,
+                skip=bool(cf.skip),
+                hopbyhop=bool(cf.hopbyhop),
+            ))
+            offset += field_size
+
+        return cls(
+            method=method,
+            version=version,
+            remote=remote,
+            local_addr=local_addr,
+            local_port=local_port,
+            tls=bool(creq.tls),
+            websocket_handshake=bool(creq.websocket_handshake),
+            app_target=creq.app_target,
+            server_name=server_name,
+            target=target,
+            path=path,
+            query=query,
+            headers=fields,
+            preread_content=preread,
+            content_length=creq.content_length,
+        )
+
 
 @dataclass
 class UnitResponse:
@@ -454,6 +526,50 @@ class UnitResponse:
             field_off += ctypes.sizeof(CNxtUnitField)
 
         return bytes(buf)
+
+    @classmethod
+    def deserialize(cls, data: bytes) -> UnitResponse:
+        """Deserializes a byte buffer containing CNxtUnitResponse into a UnitResponse."""
+        resp_hdr_size = ctypes.sizeof(CNxtUnitResponse)
+        if len(data) < resp_hdr_size:
+            return cls(status=200, content=data)
+
+        cresp = CNxtUnitResponse.from_buffer_copy(data[:resp_hdr_size])
+        fields: List[HttpHeaderField] = []
+        field_size = ctypes.sizeof(CNxtUnitField)
+        offset = resp_hdr_size
+
+        for _ in range(cresp.fields_count):
+            if offset + field_size > len(data):
+                break
+            cf = CNxtUnitField.from_buffer_copy(data[offset : offset + field_size])
+            name_abs = offset + CNxtUnitField.name_offset.offset + cf.name_offset
+            val_abs = offset + CNxtUnitField.value_offset.offset + cf.value_offset
+            name = data[name_abs : name_abs + cf.name_length].decode("utf-8", errors="replace") if name_abs + cf.name_length <= len(data) else ""
+            val = data[val_abs : val_abs + cf.value_length].decode("utf-8", errors="replace") if val_abs + cf.value_length <= len(data) else ""
+            fields.append(HttpHeaderField(
+                name=name,
+                value=val,
+                hash=cf.hash,
+                skip=bool(cf.skip),
+                hopbyhop=bool(cf.hopbyhop),
+            ))
+            offset += field_size
+
+        content = b""
+        if cresp.piggyback_content_length > 0 and cresp.piggyback_content_offset:
+            pc_abs = CNxtUnitResponse.piggyback_content_offset.offset + cresp.piggyback_content_offset
+            if pc_abs + cresp.piggyback_content_length <= len(data):
+                content = data[pc_abs : pc_abs + cresp.piggyback_content_length]
+        elif offset < len(data):
+            content = data[offset:]
+
+        return cls(
+            status=cresp.status,
+            headers=fields,
+            content=content,
+            content_length=cresp.content_length,
+        )
 
 
 # --- Self-Validation against Linux x86_64 ABI ---

@@ -251,16 +251,23 @@ class Router:
             # Parse response payload from shared memory or inline
             resp_content = b"OK"
             resp_status = 200
+            resp_headers: List[HttpHeaderField] = []
             if pmsg.mmap and len(payload) >= 12:
                 mmsg = MmapMsg.from_bytes(payload[:12])
                 shm_bytes = self.shm_pool.get_data(mmsg.mmap_id, mmsg.chunk_id, mmsg.size)
                 if shm_bytes:
-                    resp_content = shm_bytes
+                    try:
+                        parsed_resp = UnitResponse.deserialize(shm_bytes)
+                        resp_content = parsed_resp.content
+                        resp_status = parsed_resp.status
+                        resp_headers = parsed_resp.headers
+                    except Exception:
+                        resp_content = shm_bytes
                 # Free response chunk in shared memory
                 needed_chunks = (mmsg.size + 16383) // 16384
                 self.shm_pool.free(mmsg.mmap_id, mmsg.chunk_id, needed_chunks)
 
-            resp = UnitResponse(status=resp_status, content=resp_content)
+            resp = UnitResponse(status=resp_status, headers=resp_headers, content=resp_content)
             self.listener.send_http_response(rpc.conn, resp)
 
             # Release request shared memory chunks

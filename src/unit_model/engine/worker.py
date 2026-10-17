@@ -167,6 +167,7 @@ class AppWorker:
 
         # Retrieve request payload from shared memory
         raw_req = self.shm_pool.get_data(mmsg.mmap_id, mmsg.chunk_id, mmsg.size)
+        parsed_req = UnitRequest.deserialize(raw_req) if raw_req else None
 
         # Simulate execution latency & handler dispatch
         def execute_handler():
@@ -176,7 +177,7 @@ class AppWorker:
             resp = UnitResponse(status=200, content=b"Simulated Response")
             if self.handler:
                 # Call framework handler
-                resp = self.handler(None)  # Pass parsed request
+                resp = self.handler(parsed_req)
 
             self._send_response(resp)
 
