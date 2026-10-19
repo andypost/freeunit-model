@@ -55,9 +55,26 @@ class AppQueue:
         self.total_doorbells_sent: int = 0
         self.total_doorbells_suppressed: int = 0
 
-    def send(self, data: bytes, tracking: int) -> Tuple[bool, bool, int]:
-        """nxt_app_queue_send simulation.
+    @staticmethod
+    def notify_decision(pos: int, depth_bound: int) -> bool:
+        """nxt_app_queue_notify_decision parity:
+        pos < 0 (head advanced past producer) or pos < depth_bound.
+        """
+        return pos < 0 or pos < max(1, depth_bound)
+
+    def send_bound(
+        self, data: bytes, tracking: int, depth_bound: int = 1
+    ) -> Tuple[bool, bool, int]:
+        """nxt_app_queue_send_bound simulation.
         
+        Args:
+            data: Payload bytes (capped at NXT_APP_QUEUE_MSG_SIZE = 31 bytes).
+            tracking: Request stream tracking ID.
+            depth_bound: Doorbell bound (max(processes * threads, registered contexts)).
+                         When depth_bound == 1 (single worker/thread), notifications
+                         are coalesced on the `notified` flag 0->1 transition.
+                         When depth_bound > 1, notification is decided by queue position.
+
         Returns:
             (success, need_notify, cookie)
         """
@@ -78,26 +95,46 @@ class AppQueue:
         self.queue.append(slot_idx)
         self.total_enqueued += 1
 
-        # Doorbell logic: nxt_atomic_cmp_set(&q->notified, 0, 1)
         need_notify = False
-        if self.notified == 0:
-            self.notified = 1
-            need_notify = True
-            self.total_doorbells_sent += 1
+        if depth_bound == 1:
+            # One reader: coalesce on the flag, ring only on 0->1 transition
+            if self.notified == 0:
+                self.notified = 1
+                need_notify = True
+                self.total_doorbells_sent += 1
+            else:
+                self.total_doorbells_suppressed += 1
         else:
-            self.total_doorbells_suppressed += 1
+            # Multi-reader / threads: position relative to queue head
+            pos = len(self.queue) - 1
+            need_notify = self.notify_decision(pos, depth_bound)
+            if need_notify:
+                self.total_doorbells_sent += 1
+            else:
+                self.total_doorbells_suppressed += 1
 
         self.loop.record_trace(
             "app_queue",
             "enqueued",
             slot=slot_idx,
             tracking=tracking,
+            depth_bound=depth_bound,
             need_notify=need_notify,
         )
         return True, need_notify, slot_idx
 
+    def send(self, data: bytes, tracking: int) -> Tuple[bool, bool, int]:
+        """Legacy send simulation (defaults to depth_bound=1)."""
+        return self.send_bound(data, tracking, depth_bound=1)
+
     def recv(self) -> Optional[QueueItem]:
-        """nxt_app_queue_recv simulation."""
+        """nxt_app_queue_recv simulation.
+        
+        Faithfully simulates queue draining and automatic re-arming of the
+        one-reader doorbell (`notified` flag reset to 0) when the queue is emptied,
+        preventing sticky doorbell deadlocks if a worker dequeues without reading
+        the doorbell or dies abruptly.
+        """
         if not self.queue:
             return None
 
@@ -110,11 +147,17 @@ class AppQueue:
         self.free_list.append(slot_idx)
         self.total_dequeued += 1
 
+        # Re-arm the one-reader doorbell once the queue is drained
+        if len(self.queue) == 0 and self.notified == 1:
+            self.notified = 0
+            self.loop.record_trace("app_queue", "queue_drained_rearmed_doorbell")
+
         self.loop.record_trace(
             "app_queue",
             "dequeued",
             slot=slot_idx,
             tracking=item.tracking,
+            remaining_depth=len(self.queue),
         )
         return item
 

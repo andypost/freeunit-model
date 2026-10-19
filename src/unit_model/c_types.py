@@ -30,6 +30,15 @@ NXT_APP_QUEUE_SIZE = NXT_APP_NNCQ_SIZE
 NXT_APP_QUEUE_MSG_SIZE = 31
 
 NXT_UNIT_NONE_FIELD = 0xFFFFFFFF
+NXT_UNIT_MAX_PLAIN_SIZE = 1024
+NXT_PHP_RESPONSE_ROOM = 8192
+NXT_HAVE_SIGNALFD = 1
+
+NXT_OK = 0
+NXT_ERROR = -1
+NXT_EAGAIN = 11
+NXT_AGAIN = NXT_EAGAIN
+NXT_EINTR = 4
 
 
 # --- Port Message Types & Flags ---
@@ -191,6 +200,34 @@ class CNxtUnitResponse(ctypes.Structure):
         ("status", ctypes.c_uint16),
         ("_pad", ctypes.c_uint16),
         ("piggyback_content_offset", ctypes.c_uint32),
+    ]
+
+
+class CSignalfdSiginfo(ctypes.Structure):
+    """Linux kernel struct signalfd_siginfo layout (128 bytes)."""
+    _fields_ = [
+        ("ssi_signo", ctypes.c_uint32),
+        ("ssi_errno", ctypes.c_int32),
+        ("ssi_code", ctypes.c_int32),
+        ("ssi_pid", ctypes.c_uint32),
+        ("ssi_uid", ctypes.c_uint32),
+        ("ssi_fd", ctypes.c_int32),
+        ("ssi_tid", ctypes.c_uint32),
+        ("ssi_band", ctypes.c_uint32),
+        ("ssi_overrun", ctypes.c_uint32),
+        ("ssi_trapno", ctypes.c_uint32),
+        ("ssi_status", ctypes.c_int32),
+        ("ssi_int", ctypes.c_int32),
+        ("ssi_ptr", ctypes.c_uint64),
+        ("ssi_utime", ctypes.c_uint64),
+        ("ssi_stime", ctypes.c_uint64),
+        ("ssi_addr", ctypes.c_uint64),
+        ("ssi_addr_lsb", ctypes.c_uint16),
+        ("_pad2", ctypes.c_uint16),
+        ("ssi_syscall", ctypes.c_int32),
+        ("ssi_call_addr", ctypes.c_uint64),
+        ("ssi_arch", ctypes.c_uint32),
+        ("_pad", ctypes.c_uint8 * 28),
     ]
 
 
@@ -582,6 +619,7 @@ def validate_layouts() -> None:
     assert ctypes.sizeof(CNxtUnitField) == 16, f"CNxtUnitField size mismatch: {ctypes.sizeof(CNxtUnitField)} != 16"
     assert ctypes.sizeof(CNxtUnitRequest) == 96, f"CNxtUnitRequest size mismatch: {ctypes.sizeof(CNxtUnitRequest)} != 96"
     assert ctypes.sizeof(CNxtUnitResponse) == 24, f"CNxtUnitResponse size mismatch: {ctypes.sizeof(CNxtUnitResponse)} != 24"
+    assert ctypes.sizeof(CSignalfdSiginfo) == 128, f"CSignalfdSiginfo size mismatch: {ctypes.sizeof(CSignalfdSiginfo)} != 128"
 
 
 

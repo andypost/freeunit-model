@@ -18,7 +18,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from unit_model.c_types import (
     DetachedMode,
+    HttpHeaderField,
     MmapMsg,
+    NXT_PHP_RESPONSE_ROOM,
+    NXT_UNIT_MAX_PLAIN_SIZE,
     PortMsg,
     PortMsgFlag,
     PortMsgType,
@@ -53,6 +56,8 @@ class AppWorker:
         shm_pool: SharedMemoryPool,
         max_requests: int = 1000,
         request_timeout_ms: int = 30_000,
+        static_script: bool = False,
+        script_exists: bool = True,
     ):
         self.loop = loop
         self.worker_id = worker_id
@@ -62,9 +67,13 @@ class AppWorker:
         self.shm_pool = shm_pool
         self.max_requests = max_requests
         self.request_timeout_ms = request_timeout_ms
+        self.static_script = static_script
+        self.script_exists = script_exists
 
         self.state: WorkerState = WorkerState.IDLE
         self.requests_handled: int = 0
+        self.total_single_buffer_responses: int = 0
+        self.total_multi_buffer_responses: int = 0
         self.current_stream: Optional[int] = None
         self.current_reply_port: Optional[int] = None
 
@@ -174,6 +183,26 @@ class AppWorker:
             if self.state == WorkerState.DEAD:
                 return
 
+            if self.static_script:
+                # Fixed target (PR 751): per-request stat() is skipped.
+                # If script does not exist, 404 is emitted after php_request_startup(),
+                # retaining PHP startup headers (e.g. X-Powered-By: PHP/8.5.0-dev).
+                if not self.script_exists:
+                    resp = UnitResponse(
+                        status=404,
+                        headers=[HttpHeaderField(name="X-Powered-By", value="PHP/8.5.0-dev")],
+                        content=b"",
+                    )
+                    self._send_response(resp)
+                    return
+            else:
+                # Dynamic target: stat() runs before php_request_startup().
+                # If script does not exist, 404 is emitted with no PHP headers.
+                if not self.script_exists:
+                    resp = UnitResponse(status=404, headers=[], content=b"")
+                    self._send_response(resp)
+                    return
+
             resp = UnitResponse(status=200, content=b"Simulated Response")
             if self.handler:
                 # Call framework handler
@@ -189,9 +218,34 @@ class AppWorker:
         )
 
     def _send_response(self, resp: UnitResponse) -> None:
-        """Write response back to router via shared memory and socket."""
+        """Write response back to router via shared memory and socket.
+        
+        Faithfully models single-buffer response framing (K2 / PR 776):
+        Responses where body length <= NXT_PHP_RESPONSE_ROOM (8192 bytes)
+        fit entirely into the response header buffer as piggyback content,
+        reducing port messages to a single response message. Larger responses
+        require chunked transmission.
+        """
         if self.state == WorkerState.DEAD:
             return
+
+        is_single_buffer = len(resp.content) <= NXT_PHP_RESPONSE_ROOM
+        if is_single_buffer:
+            self.total_single_buffer_responses += 1
+            self.loop.record_trace(
+                f"worker_{self.worker_id}",
+                "response_single_buffer_piggybacked",
+                stream=self.current_stream,
+                body_size=len(resp.content),
+            )
+        else:
+            self.total_multi_buffer_responses += 1
+            self.loop.record_trace(
+                f"worker_{self.worker_id}",
+                "response_multi_buffer_chunked",
+                stream=self.current_stream,
+                body_size=len(resp.content),
+            )
 
         resp_bytes = resp.serialize()
 

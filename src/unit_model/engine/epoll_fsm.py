@@ -10,9 +10,20 @@ Faithfully models:
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass, field
 from enum import IntFlag
 from typing import Dict, List, Optional, Set, Tuple
+
+from unit_model.c_types import (
+    CSignalfdSiginfo,
+    NXT_AGAIN,
+    NXT_EAGAIN,
+    NXT_EINTR,
+    NXT_ERROR,
+    NXT_HAVE_SIGNALFD,
+    NXT_OK,
+)
 
 
 class EpollFlag(IntFlag):
@@ -186,3 +197,92 @@ class ConnectionRecyclingFSM:
         self.closing = True
         self.deferred_timer_active = False
         self.is_keepalive_idle = False
+
+
+class SignalfdFSM:
+    """Linux signalfd Non-Blocking Read & Multi-Engine Spurious Wakeup FSM.
+
+    Faithfully models:
+    - Kernel signal delivery to non-blocking signalfd descriptors.
+    - Spurious wakeups across multi-threaded epoll engines (FreeUnit PR 776 / 14c69bbce).
+    - Signal consumption race: Thread 1 reads 128 bytes (CSignalfdSiginfo), Thread 2 receives EAGAIN.
+    - Spurious EAGAIN classification via `nxt_epoll_signalfd_eagain(n, err)`.
+    - Error logging distinction: EAGAIN ignored silently; short reads or non-EAGAIN errors trigger alerts.
+    """
+
+    def __init__(self, fd: int = 42) -> None:
+        self.fd = fd
+        self.pending_signals: List[Dict[str, int]] = []
+        self.total_signals_raised: int = 0
+        self.total_signals_consumed: int = 0
+        self.total_spurious_eagains: int = 0
+        self.total_alerts: int = 0
+
+    @staticmethod
+    def nxt_epoll_signalfd_eagain(n: int, err: int) -> bool:
+        """FreeUnit C macro parity: nxt_epoll_signalfd_eagain(n, err).
+        
+        The signalfd descriptor is non-blocking. epoll may report it readable
+        after another thread has consumed the signal, and then read() returns
+        EAGAIN. That is a spurious wakeup, not an error.
+        """
+        return n == -1 and err == NXT_EAGAIN
+
+    def raise_signal(self, signo: int, pid: int = 1234, status: int = 0) -> None:
+        """Kernel queues a signal for delivery via signalfd."""
+        self.pending_signals.append({
+            "signo": signo,
+            "pid": pid,
+            "status": status,
+        })
+        self.total_signals_raised += 1
+
+    def read_signalfd(
+        self,
+        buffer_size: int = ctypes.sizeof(CSignalfdSiginfo),
+        force_errno: Optional[int] = None,
+    ) -> Tuple[int, int, Optional[CSignalfdSiginfo]]:
+        """Simulates non-blocking read() on signalfd.
+        
+        Returns:
+            (bytes_read, errno, siginfo_struct)
+        """
+        if force_errno is not None:
+            return -1, force_errno, None
+
+        if not self.pending_signals:
+            # Spurious read wakeup on non-blocking fd: no signals waiting
+            self.total_spurious_eagains += 1
+            return -1, NXT_EAGAIN, None
+
+        sig = self.pending_signals.pop(0)
+        self.total_signals_consumed += 1
+
+        siginfo = CSignalfdSiginfo()
+        siginfo.ssi_signo = sig["signo"]
+        siginfo.ssi_pid = sig["pid"]
+        siginfo.ssi_status = sig["status"]
+
+        if buffer_size < ctypes.sizeof(CSignalfdSiginfo):
+            # Short read error
+            return buffer_size, 0, None
+
+        return ctypes.sizeof(CSignalfdSiginfo), 0, siginfo
+
+    def handle_signalfd_read(
+        self, n: int, err: int
+    ) -> Tuple[bool, str]:
+        """FreeUnit nxt_epoll_signalfd_handler logic parity.
+        
+        Returns:
+            (should_alert, log_message)
+        """
+        if self.nxt_epoll_signalfd_eagain(n, err):
+            # Spurious wakeup: safely ignored
+            return False, "spurious EAGAIN ignored"
+
+        if n != ctypes.sizeof(CSignalfdSiginfo):
+            self.total_alerts += 1
+            return True, f"read signalfd({self.fd}) failed {err}"
+
+        return False, "signal consumed successfully"

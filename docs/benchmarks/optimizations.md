@@ -92,3 +92,58 @@ flowchart LR
 ### Benchmark Results
 - Eliminates 50% of IPC message traffic for responses up to 16 KiB.
 - Halves shared-memory chunk allocations and contention on `mmaps->mutex`.
+
+---
+
+## Single-Worker Queue Notification Coalescing (Commit `edd1283ca`)
+
+### The Problem with Uncoalesced Single-Worker Signals
+In FreeUnit with a single worker process (`depth_bound = 1`), position-based notification checks signaled every request arriving after the queue was drained. On single-worker PHP hello benchmarks, these repeated signals cost approximately **4% CPU**.
+
+### The Solution: 0->1 Flag Coalescing & Drain Re-arming
+Commit `edd1283ca` re-introduced coalescing on the `q->notified` flag specifically when `depth_bound == 1`:
+1. **Producer Side**: The router signals the application port only on the atomic `0 -> 1` transition of `q->notified`. Subsequent enqueues while `notified == 1` suppress the doorbell.
+2. **Consumer Side & Re-arming**: `nxt_app_queue_recv()` re-arms the doorbell by resetting `notified = 0` whenever the queue depth reaches zero (`nxt_app_queue_depth(q) == 0`).
+3. **Deadlock Immunity**: If a worker dequeues without reading the doorbell (e.g. already awake from a previous task or crash recovery), the flag is cleared as soon as the queue drains, preventing permanent queue stalls.
+
+```mermaid
+flowchart TD
+    Enq["Router enqueues request (depth_bound == 1)"]
+    FlagTest{"cmp_set(&q->notified, 0, 1)?"}
+    RingDoorbell["Send READ_QUEUE doorbell datagram"]
+    Coalesce["Coalesce: Suppress doorbell (Worker already signaled)"]
+    WorkerDrain["Worker drains queue items in batch"]
+    QueueEmpty{"nxt_app_queue_depth(q) == 0?"}
+    RearmDoorbell["Reset notified = 0 (Doorbell re-armed)"]
+    KeepFlag["Keep notified = 1 (Items remain)"]
+
+    Enq --> FlagTest
+    FlagTest -->|0 -> 1 Transition| RingDoorbell
+    FlagTest -->|Already 1| Coalesce
+    RingDoorbell --> WorkerDrain
+    WorkerDrain --> QueueEmpty
+    QueueEmpty -->|Yes: Drained| RearmDoorbell
+    QueueEmpty -->|No: More items| KeepFlag
+
+    classDef blue fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe;
+    classDef yellow fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+    classDef green fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#a7f3d0;
+    class Enq,FlagTest blue;
+    class RingDoorbell,Coalesce yellow;
+    class WorkerDrain,QueueEmpty,RearmDoorbell,KeepFlag green;
+```
+
+---
+
+## Multi-Engine Epoll signalfd Spurious Wakeup Classification (PR 776)
+
+### Multi-Threaded signalfd Race
+In multi-threaded FreeUnit router engines, `signalfd` is non-blocking (`O_NONBLOCK`). When a process-directed signal (`SIGCHLD`, `SIGHUP`) arrives:
+- Epoll reports the descriptor readable across multiple engine threads.
+- Thread 1 wins the race, reads 128 bytes (`struct signalfd_siginfo`), and consumes the signal.
+- Thread 2 attempts `read()`, but the kernel signal queue is now empty, returning `n = -1` with `errno = EAGAIN`.
+
+### The Fix (`14c69bbce`)
+FreeUnit introduced `nxt_epoll_signalfd_eagain(n, err)` to explicitly classify `(n == -1 && err == NXT_EAGAIN)` as a benign spurious wakeup rather than an error:
+- Erroneous reads (e.g. `EINTR` or short reads $< 128$ bytes) still log `nxt_alert()`.
+- Spurious `EAGAIN` wakeups return immediately without false-positive alerts, keeping CI and production logs clean.
