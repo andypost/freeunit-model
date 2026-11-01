@@ -5,14 +5,34 @@ Models:
 - Superglobals ($_SERVER, $_GET, $_POST, $_COOKIE) initialization and teardown.
 - Database connection ($wpdb) and user auth cache ($current_user).
 - wp-cron.php (DISABLE_WP_CRON) scheduled background invocation via FreeUnit schedules.
+
+Response profile (ASSUMPTIONS, not measured):
+- A rendered page is 30-80 KiB of HTML before compression (median 50 KiB,
+  from the usual size of a default-theme front page with a few plugins).
+- WordPress echoes template output as it renders; with output_buffering=4096
+  the SAPI gets writes of about 4 KiB, so a page is a dozen or so writes.
+- wp-cron.php answers with an empty 200 (DISABLE_WP_CRON + scheduled GET).
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from unit_model.c_types import UnitRequest, UnitResponse
+from unit_model.engine.frameworks.profile import PHP_OUTPUT_BUFFERING, ResponseProfile
+
+
+WORDPRESS_PAGE = ResponseProfile(
+    name="wordpress_page",
+    median_bytes=50 * 1024,
+    sigma=0.4,
+    min_bytes=30 * 1024,
+    max_bytes=80 * 1024,
+    write_chunk=PHP_OUTPUT_BUFFERING,
+    source="assumption: default theme front page; php.ini-production output_buffering=4096",
+)
 
 
 @dataclass
@@ -28,18 +48,19 @@ class WordPressState:
 class WordPressAdapter:
     """WordPress runtime state manager."""
 
-    def __init__(self, is_worker_mode: bool = False):
+    profile = WORDPRESS_PAGE
+
+    def __init__(self, is_worker_mode: bool = False, seed: int = 1):
         self.is_worker_mode = is_worker_mode
         self.state = WordPressState()
+        self.rng = random.Random(seed)
 
     def handle_request(self, req: Optional[UnitRequest]) -> UnitResponse:
         """Executes a WordPress request lifecycle."""
         self.state.total_requests += 1
 
-        # Check if this is the background cron endpoint
         path = req.path if req else "/"
         if "wp-cron.php" in path:
-            # Execute background cron tasks
             processed = self.state.cron_tasks_pending
             self.state.cron_tasks_pending = 0
             return UnitResponse(
@@ -47,18 +68,15 @@ class WordPressAdapter:
                 content=f"WP-Cron executed {processed} tasks".encode("utf-8"),
             )
 
-        # Standard page request
-        # In Classic mode, each request resets superglobals completely
         if not self.is_worker_mode:
             self._classic_startup()
-            resp = UnitResponse(status=200, content=b"<!DOCTYPE html><html>WP Page</html>")
+            resp = self.profile.make_response(self.rng)
             self._classic_shutdown()
             return resp
-        else:
-            # Worker mode: manual cleanup required
-            resp = UnitResponse(status=200, content=b"<!DOCTYPE html><html>WP Worker Page</html>")
-            self._worker_reset()
-            return resp
+
+        resp = self.profile.make_response(self.rng)
+        self._worker_reset()
+        return resp
 
     def _classic_startup(self) -> None:
         self.state.superglobals = {"_GET": {}, "_POST": {}, "_COOKIE": {}, "_SERVER": {}}
@@ -67,5 +85,4 @@ class WordPressAdapter:
         self.state.superglobals.clear()
 
     def _worker_reset(self) -> None:
-        # Reset globals that leak across requests in worker mode
         self.state.superglobals.clear()

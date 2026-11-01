@@ -37,6 +37,7 @@ def test_abrupt_worker_sigkill_recovery():
 
     router.register_worker("test_app", 99, q, sock)
     worker.on_send_response_to_router = router.on_worker_response_msg
+    worker.on_exit = router.on_worker_death
 
     # Simulate long running request
     def slow_handler(req):

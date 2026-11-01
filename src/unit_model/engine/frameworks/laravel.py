@@ -7,6 +7,13 @@ Models:
 - Auth guard purge (session / JWT token reset).
 - Queued cookies flush.
 - max_requests jitter to prevent coordinated worker churn.
+
+Response profile (ASSUMPTIONS, not measured):
+- A JSON API response of 512 bytes to 4 KiB (median 1.5 KiB).
+- The response is written once (Response::send()).  A 1.5 KiB body does not
+  fit the room of the 1008-byte header buffer, so the header goes alone and
+  the body is a second message; a body under about 900 bytes rides with the
+  header.
 """
 
 from __future__ import annotations
@@ -16,6 +23,19 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from unit_model.c_types import UnitRequest, UnitResponse
+from unit_model.engine.frameworks.profile import ResponseProfile
+
+
+LARAVEL_JSON = ResponseProfile(
+    name="laravel_json",
+    median_bytes=1536,
+    sigma=0.6,
+    min_bytes=512,
+    max_bytes=4 * 1024,
+    write_chunk=None,
+    content_type="application/json",
+    source="assumption: Laravel Octane JSON API; one write per response",
+)
 
 
 @dataclass
@@ -32,27 +52,23 @@ class LaravelState:
 class LaravelAdapter:
     """Laravel Octane runtime state manager."""
 
-    def __init__(self, base_max_requests: int = 1000, jitter: int = 50):
+    profile = LARAVEL_JSON
+
+    def __init__(self, base_max_requests: int = 1000, jitter: int = 50, seed: int = 1):
+        self.rng = random.Random(seed)
         self.state = LaravelState(
-            max_requests_limit=base_max_requests + random.randint(-jitter, jitter)
+            max_requests_limit=base_max_requests + self.rng.randint(-jitter, jitter)
         )
 
     def handle_request(self, req: Optional[UnitRequest]) -> UnitResponse:
         self.state.total_requests += 1
 
-        # 1. Clone sandbox container
         self.state.active_sandbox = True
-
-        # 2. Simulate business logic mutating state
         self.state.auth_user_id = 42
         self.state.queued_cookies += 2
 
-        resp = UnitResponse(
-            status=200,
-            content=b'{"message":"Laravel Octane Response"}',
-        )
+        resp = self.profile.make_response(self.rng)
 
-        # 3. Teardown sandbox & purge state
         self._purge_sandbox()
         return resp
 

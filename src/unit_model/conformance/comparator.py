@@ -82,7 +82,8 @@ class WireComparator:
                 f"Body mismatch: len(Oracle)={len(oracle_resp.content)} vs len(Live)={len(live_resp.content)}"
             )
 
-        # Framing sequence comparison (e.g. K2 single framing 'ABL' vs baseline 'ABBL')
+        # Framing sequence comparison: the message sequence of a response
+        # (master: header message 'A', one body message 'B' per write, last 'L')
         framing_match = True
         if oracle_framing is not None and live_framing is not None:
             framing_match = oracle_framing == live_framing

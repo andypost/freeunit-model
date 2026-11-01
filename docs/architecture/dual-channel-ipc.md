@@ -10,8 +10,8 @@ A critical design characteristic of FreeUnit is its dual-channel IPC architectur
 |---|---|---|
 | **Underlying Mechanism** | Lockless circular ring buffer in shared memory | `AF_UNIX` datagram socket pair (`SOCK_DGRAM`) |
 | **Descriptor Payload** | Maximum 31 bytes (`size` + `data[31]` + `tracking`) | Unbounded socket datagrams + ancillary `SCM_RIGHTS` |
-| **Signaling** | Atomic `notified` flag / Doorbell (`DOORDEL`) | Socket readiness wake-up via `epoll` / `poll` |
-| **Typical Use** | Fast-path request dispatch (GET/HEAD without large bodies) | Large headers, multi-chunk bodies, control messages (`SHM_ACK`) |
+| **Signaling** | `READ_QUEUE` doorbell datagram, coalesced at the producer (`nxt_app_queue_send_bound`) | Socket readiness wake-up via `epoll` / `poll` |
+| **Typical Use** | Request descriptors (16-byte header + 12-byte mmap record); response messages of <= 31 bytes go through the router port queue the same way | Plain data over 15 bytes, `REQ_HEADERS_ACK`, websocket frames, control messages (`OOSM`, `SHM_ACK`, `QUIT`) |
 
 ---
 

@@ -81,6 +81,76 @@ def test_yii3_state_resetter():
     assert not yii.state.active_transaction
 
 
+def test_framework_profiles_are_bounded_and_deterministic():
+    """The profiles are assumptions, but they must be bounded and seeded."""
+    from unit_model.engine.frameworks.profile import PHP_OUTPUT_BUFFERING
+    for cls in (WordPressAdapter, DrupalAdapter, SymfonyAdapter, LaravelAdapter, Yii3Adapter):
+        a, b = cls(seed=7), cls(seed=7)
+        for _ in range(5):
+            ra, rb = a.handle_request(None), b.handle_request(None)
+            assert ra.content == rb.content
+            prof = cls.profile
+            assert prof.min_bytes <= len(ra.content) <= prof.max_bytes
+            assert ra.content_length == len(ra.content)
+            assert prof.source.startswith("assumption")
+
+
+def test_wordpress_writes_in_output_buffering_flushes():
+    """A 50 KiB page with output_buffering=4096 is about a dozen writes."""
+    from unit_model.engine.frameworks.profile import PHP_OUTPUT_BUFFERING
+    wp = WordPressAdapter(seed=3)
+    resp = wp.handle_request(None)
+    writes = resp.writes()
+    assert len(writes) == -(-len(resp.content) // PHP_OUTPUT_BUFFERING)
+    assert all(len(w) == PHP_OUTPUT_BUFFERING for w in writes[:-1])
+    assert b"".join(writes) == resp.content
+
+
+def test_yii3_flushes_header_before_body_and_symfony_writes_once():
+    assert Yii3Adapter.profile.flush_header_first is True
+    assert Yii3Adapter(seed=1).handle_request(None).flush_header_first is True
+    assert SymfonyAdapter(seed=1).handle_request(None).write_sizes is None
+    assert LaravelAdapter(seed=1).handle_request(None).write_sizes is None
+
+
+def test_framework_responses_through_libunit_path():
+    """Run each profile through the worker: header once, body bytes intact."""
+    from unit_model.c_types import MmapMsg, PortMsgType
+    from unit_model.engine.event_loop import SimEventLoop
+    from unit_model.engine.ipc_queue import AppQueue
+    from unit_model.engine.ipc_socket import UnixSocketPair
+    from unit_model.engine.shm_pool import SharedMemoryPool
+    from unit_model.engine.worker import AppWorker
+
+    for cls in (WordPressAdapter, DrupalAdapter, SymfonyAdapter, LaravelAdapter, Yii3Adapter):
+        loop = SimEventLoop()
+        shm = SharedMemoryPool(loop)
+        worker = AppWorker(loop, 1, "app", AppQueue(loop), UnixSocketPair(loop), shm)
+        sent = []
+        worker.on_send_response_to_router = lambda rp, m, pl, w: sent.append((m, pl))
+        worker.current_stream = 7
+        resp = cls(seed=5).handle_request(None)
+        worker._send_response(resp)
+        loop.run_until_idle()
+
+        body = b""
+        for m, pl in sent:
+            if m.type != PortMsgType.DATA:
+                continue
+            if m.mmap:
+                mm = MmapMsg.from_bytes(pl)
+                raw = shm.get_data(mm.mmap_id, mm.chunk_id, mm.size)
+                body += UnitResponse.deserialize(raw).content if m is sent[0][0] else raw
+            else:
+                body += pl
+        assert body == resp.content, cls.__name__
+        expected_msgs = len(resp.writes()) + 1 + (1 if resp.flush_header_first else 0)
+        # One write may ride in the header message: then one message fewer.
+        data_msgs = [m for m, _ in sent if m.type == PortMsgType.DATA]
+        assert len(data_msgs) in (expected_msgs, expected_msgs + 1), cls.__name__
+        assert data_msgs[-1].last is True
+
+
 if __name__ == "__main__":
     test_wordpress_lifecycle()
     test_drupal_detached_completion()

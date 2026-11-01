@@ -62,6 +62,7 @@ if HAVE_HYPOTHESIS:
                 )
                 self.router.register_worker("web", wid, q, sock)
                 worker.on_send_response_to_router = self.router.on_worker_response_msg
+                worker.on_exit = self.router.on_worker_death
                 worker.handler = lambda req: UnitResponse(status=200, content=b"OK")
                 self.workers[wid] = worker
 

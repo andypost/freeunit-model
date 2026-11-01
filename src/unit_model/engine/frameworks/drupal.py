@@ -6,14 +6,35 @@ Models:
 - Service container resets between requests.
 - Render cache cleanup and PDO connection verification.
 - Dedicated jobs_app schedule isolation for /cron/KEY.
+
+Response profile (ASSUMPTIONS, not measured):
+- A Drupal 10/11 page is 20-60 KiB of HTML (median 35 KiB; Olivero/Claro
+  pages with a handful of blocks).
+- Drupal sends through Symfony HttpFoundation Response::send(), which echoes
+  the whole content once; with output_buffering=4096 the SAPI still gets it
+  in about 4 KiB flushes.
+- /cron/KEY answers with a small 204-like body after unit_finish_request().
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from unit_model.c_types import UnitRequest, UnitResponse
+from unit_model.engine.frameworks.profile import PHP_OUTPUT_BUFFERING, ResponseProfile
+
+
+DRUPAL_PAGE = ResponseProfile(
+    name="drupal_page",
+    median_bytes=35 * 1024,
+    sigma=0.4,
+    min_bytes=20 * 1024,
+    max_bytes=60 * 1024,
+    write_chunk=PHP_OUTPUT_BUFFERING,
+    source="assumption: Drupal 10/11 Olivero page; php.ini-production output_buffering=4096",
+)
 
 
 @dataclass
@@ -28,9 +49,12 @@ class DrupalState:
 class DrupalAdapter:
     """Drupal runtime state manager."""
 
-    def __init__(self, is_worker_mode: bool = True):
+    profile = DRUPAL_PAGE
+
+    def __init__(self, is_worker_mode: bool = True, seed: int = 1):
         self.is_worker_mode = is_worker_mode
         self.state = DrupalState()
+        self.rng = random.Random(seed)
 
     def handle_request(
         self,
@@ -40,11 +64,8 @@ class DrupalAdapter:
         self.state.total_requests += 1
         path = req.path if req else "/"
 
-        # Automated cron endpoint
         if "/cron/" in path:
-            # Long-running task: detached execution
             if on_finish_request_cb:
-                # Fast finish: send HTTP 200 to caller immediately, then finish cron in background
                 on_finish_request_cb()
                 self.state.detached_cron_running = True
                 self._run_cron_tasks()
@@ -52,8 +73,7 @@ class DrupalAdapter:
 
             return UnitResponse(status=200, content=b"Drupal Cron Completed")
 
-        # Standard request
-        resp = UnitResponse(status=200, content=b"<html>Drupal Rendered Content</html>")
+        resp = self.profile.make_response(self.rng)
 
         if self.is_worker_mode:
             self._reset_container()
@@ -62,9 +82,7 @@ class DrupalAdapter:
 
     def _reset_container(self) -> None:
         """Resets request-scoped services in DI container."""
-        # Clean request stack, reset temp store
         self.state.cached_services = 150
 
     def _run_cron_tasks(self) -> None:
-        # Simulate heavy cron indexing
         pass

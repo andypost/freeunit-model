@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Tuple
 
 from unit_model.c_types import (
+    NXT_PORT_MSG_SIZE,
     PortMsg,
     PortMsgFlag,
     PortMsgType,
@@ -100,7 +101,7 @@ class UnixSocketPair:
             self.loop.record_trace(self.name, "send_on_closed_socket", source=source)
             return False
 
-        wire_size = 20 + len(payload)  # sizeof(nxt_port_msg_t) + payload
+        wire_size = NXT_PORT_MSG_SIZE + len(payload)  # iov[0] = nxt_port_msg_t (src/nxt_port_socket.c:1211)
         curr_bytes = getattr(self, byte_counter.lstrip("_"))
         if curr_bytes + wire_size > self.buffer_capacity_bytes:
             self.loop.record_trace(

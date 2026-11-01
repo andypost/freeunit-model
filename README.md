@@ -23,7 +23,7 @@ FreeUnit processes HTTP traffic across decoupled process boundaries using a mult
 flowchart TD
     subgraph Clients["1. Inbound Client Traffic"]
         C1["Client 1 (HTTP/1.1)"]
-        C2["Client 2 (HTTP/2)"]
+        C2["Client 2 (HTTP/1.1 keep-alive)"]
         C3["Client K (WebSocket / TLS)"]
     end
 
@@ -96,10 +96,10 @@ sequenceDiagram
         Worker->>Worker: 4d. Execute Application SAPI Handler (PHP/Python/Go)
         Worker->>SHM: 4e. Write Response Body
     end
-    Worker->>Socket: 5. Send Completion / Headers ACK
-    Socket->>Router: 6. Response Ready Notification
-    Router->>SHM: 7a. Read Response & Release Chunk
-    Router->>Client: 7b. Stream Response Bytes to Client
+    Worker->>Socket: 5. DATA message per application write (header+piggyback first, empty last=1 at the end)
+    Socket->>Router: 6. Response Ready Handler (header parsed once, compression decided)
+    Router->>Client: 7a. Header once, then each body part
+    Router->>SHM: 7b. Release chunk after the client write
 ```
 
 ---
@@ -124,15 +124,15 @@ sequenceDiagram
   - `AppQueue`: Lockless circular ring buffer with atomic `notified` cmp-set flag.
   - `UnixSocketPair`: Bidirectional datagram sockets with `SCM_RIGHTS` fd passing semantics.
   - `SharedMemoryPool`: 16 KiB chunk allocator with `mmaps->mutex` synchronization and Out-Of-Shared-Memory (OOSM) backpressure.
-- **Worker Runtime (`libunit`)**: Sequential event loop, queue drain barriers before socket polling, response chunking, and detached completion.
-- **Framework Adapters**: State reset simulation for WordPress, Drupal, Symfony, Laravel Octane, and Yii3.
+- **Worker Runtime (`libunit`)**: Sequential event loop, queue drain barriers before socket polling, the response path message by message as `nxt_unit.c` sends it (header + piggyback, one message per write, empty last message; plain/shared memory choice; OOSM wait for `SHM_ACK` or plain fallback), and detached completion.
+- **Framework Adapters**: State reset simulation for WordPress, Drupal, Symfony, Laravel Octane, and Yii3, with documented (assumed, not measured) response size and write-pattern profiles.
 - **PR 452 Schedules**: Synthetic internal HTTP requests, capacity isolation, and timeout tracking.
 
 ### 3. Model B: Adversarial Invariant Verification (`unit_model.analyzer`)
 - **Adversarial Timing Interleaver**: Jitters arrival order between Unix datagram sockets and shared-memory queue descriptors to expose race conditions (e.g. issues #573, #597).
 - **Chaos Fault Injection**: Injects worker `SIGKILL` mid-transfer (issue #195), shared-memory exhaustion (OOSM), and connection resets.
 - **Invariant Checker**: Verifies 6 fundamental safety and liveness invariants:
-  1. `INV-1-FIFO-ORDER`: Stream response packets arrive in strict sequence order.
+  1. `INV-1-HEADER-ONCE`: The response header reaches the client once and before any body byte; body parts follow in message order.
   2. `INV-2-NO-UAF`: Worker process death never leaves dangling references or double-frees.
   3. `INV-3-NO-LEAK`: Every shared-memory chunk allocated is released back to the pool.
   4. `INV-4-PROGRESS`: Deadlock-free; every submitted request finishes or fails cleanly.
@@ -168,7 +168,9 @@ uv run --with pytest pytest -v
 pytest -v
 ```
 
-All 52 regression scenarios verify core invariants across dual-channel message inversion, worker crashes, OOSM recovery, framework state isolation, HTTP/2 multiplexing, WebSocket framing, TLS 0-RTT resumption, epoll edge-triggered FSM, K1 doorbell bounds, lock-free SHM slabs, and scheduled synthetic runs.
+The regression suite verifies core invariants across dual-channel message inversion, response framing as `libunit` does it, worker crashes, OOSM recovery, framework state isolation, WebSocket framing, TLS 0-RTT resumption, epoll edge-triggered FSM, doorbell bounds, and scheduled synthetic runs. Modules that describe proposals rather than FreeUnit master (HTTP/2, which is in open FreeUnit pull requests; K1 baton pass; K2 framing; lock-free SHM slabs) are marked as such in the docs.
+
+The model is checked against FreeUnit master `42251f7c9e366df31a2e70a5da3679a2fa855b3d`; see `docs/models/` for the file:line references.
 
 ---
 
@@ -194,8 +196,8 @@ unit-model verify --seed 42
 unit-model verify --chaos --seed 42
 ```
 
-### 3. Micro-Optimization Benchmarks
-Evaluate IPC performance improvements (K1 Single-Wake Doorbell & K2 Single-Buffer Response Framing):
+### 3. Doorbell Coalescing & Response Framing
+Evaluate the producer-side doorbell coalescing that is in master and print how many port messages master's `libunit` sends per response (K2 single-buffer framing is a proposal, not master):
 
 ```bash
 unit-model benchmark-optimizations
@@ -204,17 +206,20 @@ unit-model benchmark-optimizations
 Output:
 ```text
 ======================================================================
-FreeUnit Optimization Evaluation (Baseline vs K1 Doorbell & K2 Framing)
+FreeUnit Optimization & Robustness Evaluation
 ======================================================================
 1. K1 Herd Elimination (1,000 enqueued items):
    - Baseline doorbells (wake-ups):  1000
    - Optimized K1 doorbells:          1
    => Wake-up reduction:              99.9% fewer IPC context switches!
 
-2. K2 Single-Buffer Response Framing (nxt_unit_buf_send_done):
-   - Baseline chunking overhead:      2 syscalls / shm allocations per small response
-   - Optimized K2 single framing:     1 unified shm allocation & socket message
-   => Syscall reduction:              50% fewer IPC messages on small responses!
+2. Single-Worker Doorbell Coalescing (depth_bound=1, 10-item burst):
+   ...
+
+3. Response framing in FreeUnit master (one message per application write):
+   - echo 'Hello' (fits the header buffer):   2 messages (header+piggyback, empty last)
+   - 50 KiB page in 4 KiB flushes:           15 messages (header alone, 13 writes, empty last)
+   - K2 single-buffer framing is a proposal; it is not in master.
 ======================================================================
 ```
 
@@ -282,7 +287,7 @@ sock = UnixSocketPair(loop, name="worker_100_sock")
 worker = AppWorker(loop, worker_id=100, app_id="web", app_queue=queue, socket_pair=sock, shm_pool=shm)
 router.register_worker("web", 100, queue, sock)
 worker.on_send_response_to_router = router.on_worker_response_msg
-worker.handler = lambda req: UnitResponse(status=200, content=b"Hello from Model!")
+worker.handler = lambda req: UnitResponse(status=200, content=b"Hello from Model!")  # 2 port messages: header+piggyback, empty last
 
 # 3. Dispatch simulated request
 conn = listener.accept_client("192.168.1.10")
