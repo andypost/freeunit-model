@@ -1,17 +1,23 @@
-# Micro-Optimizations: K1 Doorbell & K2 Response Framing
+# Optimization Proposals: K1 Doorbell & K2 Response Framing
 
-`freeunit-model` serves as an architectural testbed for prototyping and formally proving performance improvements before applying them to the core FreeUnit C codebase.
+`freeunit-model` serves as an architectural testbed for prototyping performance improvements before proposing them to the FreeUnit C codebase.
+
+!!! warning "What is in master and what is a proposal"
+    Checked against FreeUnit master `42251f7c9e366df31a2e70a5da3679a2fa855b3d`:
+
+    - **In master**: the producer-side doorbell rule of `nxt_app_queue_send_bound()` (`src/nxt_app_queue.h:82-144`): one reader rings on the `0 -> 1` transition of `notified`; more readers ring when the item lands below `depth_bound` (`nxt_app_queue_notify_decision`, `:72-76`; the bound is `processes * threads` or the number of registered readers, `src/nxt_router.c:8725-8746`). The signalfd `EAGAIN` classification (PR 776) is in master.
+    - **Proposals, not in master**: the worker-side *baton pass* of K1, and K2 single-buffer response framing (`NXT_PHP_RESPONSE_ROOM` does not exist in master). The sections below describe them as proposals.
 
 ---
 
 ## K1: Single-Wake Doorbell (Herd Elimination)
 
 ### The Problem in Baseline IPC
-In the baseline FreeUnit implementation, every enqueue of a request descriptor into the shared-memory ring buffer (`nxt_app_queue_t`) posts a doorbell notification message (`DOORDEL`) to the worker's socket.
+In the baseline FreeUnit implementation, every enqueue of a request descriptor into the shared-memory ring buffer (`nxt_app_queue_t`) posts a `READ_QUEUE` doorbell datagram to the worker's socket.
 - On a burst of 1,000 incoming requests, this triggers **1,000 separate IPC doorbell notifications**, causing severe context switching and CPU thrashing across worker processes.
 
-### The K1 Optimization
-K1 replaces the unconditional doorbell with an atomic compare-and-swap (`cmp_set`) protocol with baton passing:
+### The K1 Proposal
+Master already coalesces at the producer (see the note above). K1 adds a worker-side baton pass on top of it; the baton pass is **not in master**:
 1. When enqueuing, the router performs an atomic test on the `notified` flag:
    $$\text{notify} = (\text{atomic\_fetch\_add}(\&q\to nitems, 1) == 0)$$
 2. Only the first enqueuer that transitions the queue from empty to non-empty sends a doorbell.
@@ -21,7 +27,7 @@ K1 replaces the unconditional doorbell with an atomic compare-and-swap (`cmp_set
 flowchart TD
     Enqueue["Router enqueues item into nxt_app_queue_t"]
     AtomicCheck{"atomic_fetch_add(&q->nitems, 1) == 0?"}
-    SendDoorbell["Send DOORDEL signal via socket"]
+    SendDoorbell["Send READ_QUEUE doorbell via socket"]
     SkipDoorbell["Skip doorbell (Worker already active)"]
     WorkerAwake["Worker awoken, drains items from queue"]
     CheckDepth{"Remaining items > 0?"}
@@ -52,21 +58,22 @@ Run `uv run unit-model benchmark-optimizations`:
 
 ---
 
-## K2: Single-Buffer Response Framing
+## K2: Single-Buffer Response Framing (proposal, not in master)
 
-### The Problem in Baseline Wire Protocol
-FreeUnit responses traditionally require:
-1. Message 1: `nxt_unit_response_t` containing HTTP headers allocated in shared memory.
-2. Message 2: Response body chunk allocated in a separate shared memory chunk.
-3. Message 3: A bare `last = 1` EOF completion message.
-This incurs **3 separate port messages and 2 shared-memory allocations** for even trivial 200 OK responses.
+### What master does
+`libunit` sends one port message per application write (`nxt_unit_response_write_nb`, `src/nxt_unit.c:3849-3936`):
+1. The header buffer is at least `NXT_UNIT_RESPONSE_PLAIN_ALLOC` = 1008 bytes (`src/nxt_unit.c:2949-2951`). The first write rides in it as piggyback content when it fits the room left behind the fields; if the buffer is plain-sized (<= 1024 bytes) and the write does not fit, the header goes alone (`:3873-3900`). The message carries no last flag.
+2. Every later write is one more `DATA` message: plain memory up to 15 bytes, shared memory when a chunk is free, plain fallback up to 1024 bytes, a wait for `SHM_ACK` above that (`nxt_unit_get_outgoing_buf`, `:5805-5912`).
+3. `nxt_unit_request_done()` ends the stream with an empty `DATA` message with the last flag, or sends a never-sent header with the last flag (`:4980-5033`).
 
-### The K2 Optimization
-FreeUnit's wire protocol already defines a `piggyback_content` pointer and `piggyback_content_length` in `nxt_unit_response_s` (`src/nxt_unit_response.h:18-21`), but baseline `libunit` budgets zero body slack during `nxt_unit_response_init()`.
+So `echo "Hello"` is **two** messages (header + piggyback, then the empty last message), not three, and master does budget piggyback room: whatever is left of the 1008 bytes. A 50 KiB page in 4 KiB flushes is 15 messages.
 
-K2 provides a configurable piggyback reserve (`buf_size + reserve`):
-- Small responses ($\le 16$ KiB) are packed directly into the same shared-memory buffer immediately trailing the response headers.
+### The K2 Proposal
+K2 would raise the piggyback reserve (`buf_size + reserve`, e.g. 8 KiB) and send the last flag with the header message when the whole body fits:
+- Small responses are packed into the same buffer immediately trailing the response headers and complete in **one** message.
 - The router parses headers and body content in a single pass.
+
+Open question: a response that completes in its header message bypasses the compressor's streaming path only if the router handles piggyback content through `nxt_http_comp_compress_app_response` as it does today (`src/nxt_router.c:6589-6610`).
 
 ```mermaid
 flowchart LR
@@ -89,9 +96,9 @@ flowchart LR
     class K1Msg green;
 ```
 
-### Benchmark Results
-- Eliminates 50% of IPC message traffic for responses up to 16 KiB.
-- Halves shared-memory chunk allocations and contention on `mmaps->mutex`.
+### Expected effect (proposal)
+- One message instead of two for responses that fit the reserve (`echo "Hello"`: 2 -> 1).
+- One shared-memory allocation less per such response. Not measured against master.
 
 ---
 

@@ -7,12 +7,15 @@ This directory contains formal specifications proving FreeUnit's core concurrenc
 ## Specifications
 
 ### 1. `FreeUnitIPC.tla`
-Formally specifies:
-- The dual-channel IPC mechanism: lockless shared-memory ring buffer (`nxt_app_queue_t`) coupled with Unix datagram doorbell signals (`DOORDEL`).
-- The K1 bounded doorbell decision rule:
-  $$\text{Notify}(pos, W) \equiv (pos < W)$$
-- The baton-pass protocol ensuring an idle or waking worker re-signals peer workers if unprocessed queue depth remains after servicing an item.
-- Proves `FIFOPreserved` and `Liveness` properties across arbitrary interleavings.
+Formally specifies the router -> application queue of FreeUnit master
+`42251f7c9e366df31a2e70a5da3679a2fa855b3d` (`src/nxt_app_queue.h`):
+- The lockless shared-memory ring buffer (`nxt_app_queue_t`) coupled with the `READ_QUEUE` doorbell datagram.
+- The producer-side doorbell decision (`nxt_app_queue_send_bound`, `src/nxt_app_queue.h:82-144`): with one reader, ring on the `0 -> 1` transition of `notified`; with more readers, ring when the item lands at a position below `depth_bound`:
+  $$\text{Notify}(pos, W) \equiv (pos < 0) \lor (pos < W)$$
+- The reader clears the flag when it takes a notification and drains the queue before it sleeps.
+- Checks `FIFOPreserved` (items complete in enqueue order), `DoorbellBounded` and `Liveness`.
+
+A worker-side "baton pass" (a worker re-ringing peers when depth remains) is **not in master**; it was removed from this specification and is listed as a proposal in `docs/models/model-b-verification.md`.
 
 ### 2. `FreeUnitNNCQ.tla`
 Formally specifies:

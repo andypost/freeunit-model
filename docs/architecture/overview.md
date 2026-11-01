@@ -52,7 +52,7 @@ sequenceDiagram
     Client->>Listener: TCP SYN + Handshake
     Listener->>Engine: EPOLLEXCLUSIVE Accept
     Client->>Engine: HTTP Request Bytes
-    Engine->>Engine: Parse HTTP/1.1 or H2 Headers
+    Engine->>Engine: Parse HTTP/1.1 Headers (HTTP/2 is in open PRs, not master)
     Engine->>SHM: Allocate 16 KiB chunk (under mmaps->mutex)
     SHM-->>Engine: Chunk Pointer & mmap_id
     Engine->>SHM: Serialize nxt_unit_request_t & headers
@@ -70,11 +70,17 @@ sequenceDiagram
     SAPI->>SAPI: Execute user application logic
     SAPI-->>Worker: Emit HTTP Response (status, headers, body)
     
-    Worker->>SHM: Write nxt_unit_response_t
-    Worker->>Engine: Send RESP_HEADERS via Unix Datagram Socket
-    Engine->>Client: Send HTTP response to client socket
-    Worker->>Engine: Release SHM chunk (SHM_ACK)
-    Engine->>SHM: Return chunk to free list
+    Worker->>SHM: Release request chunk (request released)
+    Worker->>SHM: Write nxt_unit_response_t + first write (piggyback)
+    Worker->>Engine: DATA message (port queue if <= 31 bytes, else socket)
+    Engine->>Client: Header once, then the piggyback body part
+    loop one message per further application write
+        Worker->>Engine: DATA message (shm chunk or plain)
+        Engine->>Client: Body part
+        Engine->>SHM: Release chunk after the client write
+    end
+    Worker->>Engine: Empty DATA, last=1
+    Engine->>Client: End of response
 ```
 
 ---
@@ -96,9 +102,10 @@ sequenceDiagram
 ### 3. Shared Memory Pool (`src/unit_model/engine/shm_pool.py`)
 - Request and response bodies are transferred via pre-allocated shared memory segments partitioned into 16 KiB chunks.
 - Allocations are protected by `mmaps->mutex`.
-- Implements Out-Of-Shared-Memory (OOSM) backpressure: when free chunks are exhausted, workers and router engines enter probe-mode or defer writes until `SHM_ACK` messages return freed chunks.
+- Implements Out-Of-Shared-Memory (OOSM) backpressure as `libunit` does: a buffer of at most 1024 bytes probes for a chunk and falls back to plain memory; a larger one sends `OOSM` and blocks until `SHM_ACK` (`src/nxt_unit.c:5296-5346`, `5402-5470`), which the router broadcasts when it frees a chunk or already sees one free.
 
 ### 4. App Worker Runtime (`src/unit_model/engine/worker.py`)
 - Built on `libunit` C client library.
 - Workers poll both the private socket pair and the shared-memory queue ring buffer.
+- Responses are sent one port message per application write (`nxt_unit_response_write_nb`): header + piggyback content first, a buffer per further write, an empty last message at the end. Request chunks are released by the worker when it releases the request.
 - To prevent race conditions, workers enforce a strict **queue drain barrier**: they must completely drain any pending descriptors in the shared-memory ring buffer before falling back to socket datagram processing.

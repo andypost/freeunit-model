@@ -17,21 +17,55 @@ from typing import Dict, List, Optional, Tuple, Union
 
 
 # --- Geometry & Protocol Constants ---
+#
+# Every value below is taken from FreeUnit master
+# 42251f7c9e366df31a2e70a5da3679a2fa855b3d; the comment names the defining
+# line.  A constant that is not in master is not defined here.
 
-PORT_MMAP_CHUNK_SIZE = 16 * 1024       # 16 KiB
-PORT_MMAP_HEADER_SIZE = 4 * 1024      # 4 KiB
-PORT_MMAP_DATA_SIZE = 10 * 1024 * 1024 # 10 MiB
-PORT_MMAP_SIZE = PORT_MMAP_HEADER_SIZE + PORT_MMAP_DATA_SIZE
-PORT_MMAP_CHUNK_COUNT = PORT_MMAP_DATA_SIZE // PORT_MMAP_CHUNK_SIZE # 640 chunks
+# Shared memory segment geometry (src/nxt_port_memory_int.h:24-32).
+PORT_MMAP_CHUNK_SIZE = 16 * 1024                 # :24, 16 KiB
+PORT_MMAP_HEADER_SIZE = 4 * 1024                 # :25, 4 KiB
+PORT_MMAP_DATA_SIZE = 10 * 1024 * 1024           # :26, 10 MiB
+PORT_MMAP_SIZE = PORT_MMAP_HEADER_SIZE + PORT_MMAP_DATA_SIZE   # :31
+PORT_MMAP_CHUNK_COUNT = PORT_MMAP_DATA_SIZE // PORT_MMAP_CHUNK_SIZE  # :32, 640
+PORT_MMAP_MIN_SIZE = 3 * 4                       # src/nxt_port_memory.h:11
+# Segment count bounds: a uint32 "shm" limit divided by the segment size
+# (src/nxt_port_memory_int.h:49, 410 segments) and the absolute table size
+# (src/nxt_port_memory_int.h:75).
+NXT_PORT_MMAP_MAX_SEGMENTS = 0xFFFFFFFF // PORT_MMAP_DATA_SIZE + 1
 NXT_PORT_MMAPS_MAX = 65536
 
+# Port message framing (src/nxt_port.h:280, src/nxt_port_memory_int.h:153-157).
+NXT_PORT_MSG_SIZE = 16
+NXT_PORT_MMAP_MSG_SIZE = 12
+# Datagram budget of a port (src/nxt_main_process.c:1398-1399).
+NXT_PORT_MAX_SIZE = 16 * 1024
+NXT_PORT_MAX_SHARE = 64 * 1024
+
+# Router -> application queue (src/nxt_app_nncq.h:12, src/nxt_app_queue.h:16-17).
 NXT_APP_NNCQ_SIZE = 131072
 NXT_APP_QUEUE_SIZE = NXT_APP_NNCQ_SIZE
 NXT_APP_QUEUE_MSG_SIZE = 31
+# Application -> router port queue (src/nxt_nncq.h:12, src/nxt_port_queue.h:15-16).
+NXT_NNCQ_SIZE = 16384
+NXT_PORT_QUEUE_SIZE = NXT_NNCQ_SIZE
+NXT_PORT_QUEUE_MSG_SIZE = 31
 
-NXT_UNIT_NONE_FIELD = 0xFFFFFFFF
-NXT_UNIT_MAX_PLAIN_SIZE = 1024
-NXT_PHP_RESPONSE_ROOM = 8192
+# libunit response buffers (src/nxt_unit.c:30-38).
+NXT_UNIT_NONE_FIELD = 0xFFFFFFFF                 # src/nxt_unit_request.h:15
+NXT_UNIT_MAX_PLAIN_SIZE = 1024                   # :30
+NXT_UNIT_LOCAL_BUF_SIZE = NXT_UNIT_MAX_PLAIN_SIZE + NXT_PORT_MSG_SIZE        # :31-32, 1040
+NXT_UNIT_RESPONSE_PLAIN_ALLOC = NXT_UNIT_MAX_PLAIN_SIZE - NXT_PORT_MSG_SIZE  # :33-34, 1008
+NXT_UNIT_QUEUE_PLAIN_SIZE = NXT_PORT_QUEUE_MSG_SIZE - NXT_PORT_MSG_SIZE      # :37-38, 15
+# What the outgoing shared memory last showed (src/nxt_unit.c:41-44).
+NXT_UNIT_SHM_UNKNOWN = 0
+NXT_UNIT_SHM_OK = 1
+NXT_UNIT_SHM_FAILED = 2
+NXT_UNIT_SHM_FULL = 3
+NXT_UNIT_SHM_RETRY = 60                          # :47, seconds
+# Queue drain wait before a request moves to the socket (src/nxt_unit.c:56-57).
+NXT_UNIT_DRAIN_YIELDS = 100
+NXT_UNIT_DRAIN_TIMEOUT_MS = 1000
 NXT_HAVE_SIGNALFD = 1
 
 NXT_OK = 0
@@ -513,6 +547,30 @@ class UnitResponse:
     headers: List[HttpHeaderField] = field(default_factory=list)
     content: bytes = b""
     content_length: Optional[int] = None
+    # Simulation-only (not on the wire): how the application hands the body
+    # to libunit.  write_sizes lists the sizes of successive
+    # nxt_unit_response_write() calls (None: one write of the whole body);
+    # flush_header_first models an application flush() before any body byte,
+    # which sends the response header on its own (src/nxt_php_sapi.c:1724).
+    write_sizes: Optional[List[int]] = None
+    flush_header_first: bool = False
+
+    def writes(self) -> List[bytes]:
+        """Split content into the application's write calls."""
+        if not self.content:
+            return []
+        if not self.write_sizes:
+            return [self.content]
+        out: List[bytes] = []
+        pos = 0
+        for n in self.write_sizes:
+            if pos >= len(self.content):
+                break
+            out.append(self.content[pos : pos + n])
+            pos += n
+        if pos < len(self.content):
+            out.append(self.content[pos:])
+        return out
 
     def serialize(self) -> bytes:
         """Serializes response into an exact nxt_unit_response_t byte buffer."""
@@ -593,13 +651,14 @@ class UnitResponse:
             ))
             offset += field_size
 
+        # Body bytes in the header buffer are only what piggyback_content_length
+        # says (nxt_unit_response_add_content, src/nxt_unit.c:3204-3245); the
+        # field name/value strings that follow the fields are not content.
         content = b""
         if cresp.piggyback_content_length > 0 and cresp.piggyback_content_offset:
             pc_abs = CNxtUnitResponse.piggyback_content_offset.offset + cresp.piggyback_content_offset
             if pc_abs + cresp.piggyback_content_length <= len(data):
                 content = data[pc_abs : pc_abs + cresp.piggyback_content_length]
-        elif offset < len(data):
-            content = data[offset:]
 
         return cls(
             status=cresp.status,

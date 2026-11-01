@@ -34,7 +34,7 @@ The `WireComparator` validates:
 1. **HTTP Status Code**: Strict integer equivalence.
 2. **Normalized Header Fields**: Case-insensitive name folding, whitespace trimming, and multi-value concatenation while ignoring volatile headers (`Date`, `Server`, `X-Request-Id`, `Last-Modified`, `ETag`).
 3. **Payload / Content Parity**: Exact byte-by-byte comparison of body contents.
-4. **Framing Sequence Comparison**: Detects IPC framing differences, such as baseline double-buffer (`"ABBL"`) versus K2 single-buffer (`"ABL"`) execution paths.
+4. **Framing Sequence Comparison**: Detects IPC framing differences. Master's sequence for `echo "Hello"` is header+piggyback then empty last (`"AL"`); a body that does not fit the header room is `"ABL"`; each further write adds a `B`.
 
 ```python
 from unit_model.c_types import HttpHeaderField, UnitResponse

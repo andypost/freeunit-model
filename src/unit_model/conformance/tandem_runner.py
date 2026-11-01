@@ -86,13 +86,10 @@ class TandemSession:
         conn = self.listener.accept_client(req.remote)
         captured_response: List[UnitResponse] = []
 
-        original_send = self.listener.send_http_response
-
-        def on_response(c: Any, resp: UnitResponse, keep_alive: bool = True) -> None:
+        def on_response(c: Any, resp: UnitResponse) -> None:
             captured_response.append(resp)
-            original_send(c, resp, keep_alive)
 
-        self.listener.send_http_response = on_response
+        self.listener.on_response_complete = on_response
         try:
             self.router.on_listener_request(
                 engine_id=conn.engine_id,
@@ -102,7 +99,7 @@ class TandemSession:
             )
             self.loop.run_until_idle()
         finally:
-            self.listener.send_http_response = original_send
+            self.listener.on_response_complete = None
 
         if not captured_response:
             raise RuntimeError("Simulation did not produce a response")

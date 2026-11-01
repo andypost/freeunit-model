@@ -75,6 +75,7 @@ class StateSpaceExplorer:
             )
             router.register_worker("test_app", wid, q, sock)
             w.on_send_response_to_router = router.on_worker_response_msg
+            w.on_exit = router.on_worker_death
             workers.append(w)
 
             if inject_jitter:

@@ -12,7 +12,7 @@
 - [C Schema & ABI Layouts](architecture/c-schema.md): `tree-sitter-c` AST extractor and `ctypes` memory layout mirrors matching GCC Linux x86_64 ABI bit-for-bit.
 - [Model A: Discrete-Event Simulation](models/model-a-simulation.md): Virtual clock (`SimEventLoop`), priority queue event dispatch, and framework adapters for WordPress, Drupal, Symfony, Laravel Octane, and Yii3.
 - [Model B: Adversarial Verification](models/model-b-verification.md): Combinatorial timing jitter interleaver, chaos fault injector (worker `SIGKILL`, OOSM starvation, client RST), and the 6 core invariants (INV-1 to INV-6).
-- [Micro-Optimizations & Benchmarks](benchmarks/optimizations.md): K1 single-wake doorbell herd elimination (99.9% fewer IPC context switches) and K2 single-buffer response framing (50% fewer syscalls/allocations).
+- [Optimization Proposals](benchmarks/optimizations.md): producer-side doorbell coalescing (in master), and the K1 baton pass and K2 single-buffer response framing as proposals that are not in master.
 - [Strategic Roadmap](roadmap.md): Multi-phase research and engineering roadmap spanning formal TLA+ specifications, Hypothesis model-based testing, differential testing against live FreeUnit, and telemetry replay.
 
 ## Key Source Files

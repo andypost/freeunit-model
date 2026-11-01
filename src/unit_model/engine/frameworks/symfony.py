@@ -6,14 +6,35 @@ Models:
 - Doctrine Entity Manager reset ($em->clear(), reconnect if connection died).
 - Monolog buffer flushing.
 - Request stack clearing.
+
+Response profile (ASSUMPTIONS, not measured):
+- A JSON API response of 1-8 KiB (median 3 KiB).
+- Response::send() echoes the content once and then calls flush(); the body
+  is small enough that it is a single write, and the flush finds the header
+  already sent.  Output buffering is assumed off in a worker (the runner
+  handles output itself).
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from unit_model.c_types import UnitRequest, UnitResponse
+from unit_model.engine.frameworks.profile import ResponseProfile
+
+
+SYMFONY_JSON = ResponseProfile(
+    name="symfony_json",
+    median_bytes=3 * 1024,
+    sigma=0.6,
+    min_bytes=1024,
+    max_bytes=8 * 1024,
+    write_chunk=None,
+    content_type="application/json",
+    source="assumption: Symfony JSON API; HttpFoundation Response::send() echoes once",
+)
 
 
 @dataclass
@@ -28,21 +49,20 @@ class SymfonyState:
 class SymfonyAdapter:
     """Symfony runtime state manager."""
 
-    def __init__(self, is_worker_mode: bool = True):
+    profile = SYMFONY_JSON
+
+    def __init__(self, is_worker_mode: bool = True, seed: int = 1):
         self.is_worker_mode = is_worker_mode
         self.state = SymfonyState()
+        self.rng = random.Random(seed)
 
     def handle_request(self, req: Optional[UnitRequest]) -> UnitResponse:
         self.state.total_requests += 1
 
-        # Simulate service mutations during request execution
         self.state.doctrine_entities_managed += 15
         self.state.monolog_buffer_size += 5
 
-        resp = UnitResponse(
-            status=200,
-            content=b'{"status":"ok","framework":"symfony"}',
-        )
+        resp = self.profile.make_response(self.rng)
 
         if self.is_worker_mode:
             self._reset_services()
@@ -51,8 +71,5 @@ class SymfonyAdapter:
 
     def _reset_services(self) -> None:
         """Invokes ResetInterface on container services."""
-        # 1. Doctrine $em->clear()
         self.state.doctrine_entities_managed = 0
-        # 2. Flush Monolog buffer
         self.state.monolog_buffer_size = 0
-        # 3. Request stack clear

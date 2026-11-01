@@ -81,7 +81,7 @@ nav:
       - Differential & Conformance Testing: verification/conformance.md
       - Telemetry Replay & Root-Cause Analysis: verification/replay.md
   - Performance & Optimizations:
-      - K1 & K2 Micro-Optimizations: benchmarks/optimizations.md
+      - Optimization Proposals (K1, K2): benchmarks/optimizations.md
       - Lock-Free SHM Slabs: benchmarks/lockfree-shm.md
   - Strategic Roadmap: roadmap.md
   - Articles & Posts:

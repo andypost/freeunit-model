@@ -12,7 +12,7 @@ FreeUnit processes HTTP traffic across decoupled process boundaries using a mult
 flowchart TD
     subgraph Clients["1. Inbound Client Traffic"]
         C1["Client 1 (HTTP/1.1)"]
-        C2["Client 2 (HTTP/2)"]
+        C2["Client 2 (HTTP/1.1 keep-alive)"]
         C3["Client K (WebSocket / TLS)"]
     end
 
@@ -150,7 +150,7 @@ graph LR
 
 4. **Algorithmic Optimizations & Benchmarks**:
    - **K1 Doorbell Herd Elimination**: Atomic single-wake doorbell protocol reducing IPC wakeups by **99.9%**.
-   - **K2 Single-Buffer Response Framing**: Eliminating chunking overhead by combining response headers and small bodies into a single SHM buffer, reducing IPC syscalls by **50%**.
+   - **K2 Single-Buffer Response Framing** (proposal, not in master): combining response headers and small bodies into one message. Master sends one message per application write; see [Model A](models/model-a-simulation.md#the-response-path-libunit-to-router).
 
 ---
 
@@ -187,7 +187,7 @@ uv run unit-model verify --seed 42
 # Run chaos fault-injection verification
 uv run unit-model verify --chaos --seed 42
 
-# Benchmark K1 & K2 micro-optimizations
+# Doorbell coalescing benchmark and master response framing
 uv run unit-model benchmark-optimizations
 ```
 
@@ -200,6 +200,6 @@ uv run unit-model benchmark-optimizations
 - [C Schema & ABI Mirroring](architecture/c-schema.md): Tree-sitter AST extraction and x86_64 ABI layout proofs.
 - [Model A: Simulation](models/model-a-simulation.md): Event loop dynamics and web framework adapters.
 - [Model B: Verification](models/model-b-verification.md): Adversarial interleaving and the 6 core invariants.
-- [Optimizations & Benchmarks](benchmarks/optimizations.md): Empirical evaluation of K1 and K2 optimizations.
+- [Optimization Proposals](benchmarks/optimizations.md): K1 and K2 as proposals, and what master does instead.
 - [Strategic Roadmap](roadmap.md): Multi-phase evolution toward formal TLA+ specifications and live telemetry replay.
 - [Machine & Bot Access (llms.txt)](llms.md): Markdown index and consolidated documentation for AI agents and automated crawlers.

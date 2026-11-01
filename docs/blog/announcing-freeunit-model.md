@@ -68,11 +68,11 @@ flowchart TD
 
 The engine formally verifies 6 core invariants across millions of randomized state transitions:
 
-1. **`INV-1-FIFO-ORDER`**: Dual-channel datagram messages can never overtake earlier queue descriptors for the same stream.
+1. **`INV-1-HEADER-ONCE`**: The response header reaches the client once and before any body byte; body parts follow in message order (the dual-channel FIFO property for a stream).
 2. **`INV-2-NO-UAF`**: Abrupt worker death (`SIGKILL` / `SIGCHLD`) during in-flight shared-memory transfers leaves zero dangling pointers and triggers zero double-frees.
 3. **`INV-3-NO-LEAK`**: Every 16 KiB shared memory chunk allocated under Out-Of-Shared-Memory (OOSM) backpressure is conserved and freed.
 4. **`INV-4-PROGRESS`**: Deadlock-freedom across `poll()` barriers on worker private and shared descriptors.
-5. **`INV-5-FSM-SAFETY`**: Strict HTTP/1.1 and HTTP/2 connection state transitions with zero 0ms deferred timer (`r->timer`) collisions.
+5. **`INV-5-FSM-SAFETY`**: Strict HTTP/1.1 connection state transitions (HTTP/2 is in open FreeUnit pull requests, not in master) with zero 0ms deferred timer (`r->timer`) collisions.
 6. **`INV-6-ISOLATION`**: Zero state bleed across consecutive requests in worker runtimes (WordPress, Drupal, Symfony, Laravel Octane, Yii3).
 
 ### K1 Bounded Doorbell Proof

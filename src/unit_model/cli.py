@@ -85,6 +85,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         worker = AppWorker(loop, worker_id=wid, app_id="web", app_queue=q, socket_pair=sock, shm_pool=shm)
         router.register_worker("web", wid, q, sock)
         worker.on_send_response_to_router = router.on_worker_response_msg
+        worker.on_exit = router.on_worker_death
         worker.handler = lambda req: UnitResponse(status=200, content=b"Hello from FreeUnit Model!")
 
     start_t = time.perf_counter()
@@ -178,10 +179,32 @@ def cmd_benchmark_optimizations(args: argparse.Namespace) -> int:
     print(f"   - Coalesced 0->1 transition:       {doorbells_depth1} signal sent")
     print(f"   => Syscall overhead eliminated:    90.0% reduction (saves ~4% CPU in PHP benchmarks)\n")
 
-    print(f"3. K2 Single-Buffer Response Framing (nxt_unit_buf_send_done):")
-    print(f"   - Baseline chunking overhead:      2-3 syscalls / shm allocations per small response")
-    print(f"   - Optimized K2 single framing:     1 unified shm allocation & socket message (ABL)")
-    print(f"   => Syscall reduction:              50% fewer IPC messages on small responses!\n")
+    # 3. Response framing as libunit does it in master (nxt_unit_response_write_nb,
+    #    nxt_unit_request_done): measured on the simulated worker.
+    from unit_model.c_types import HttpHeaderField, PortMsgType, UnitResponse
+    from unit_model.engine.ipc_socket import UnixSocketPair
+    from unit_model.engine.shm_pool import SharedMemoryPool
+    from unit_model.engine.worker import AppWorker
+
+    def count_messages(resp: UnitResponse) -> int:
+        loop = SimEventLoop()
+        shm = SharedMemoryPool(loop)
+        w = AppWorker(loop, 1, "php", AppQueue(loop), UnixSocketPair(loop), shm)
+        sent = []
+        w.on_send_response_to_router = lambda rp, m, pl, wid: sent.append(m)
+        w.current_stream = 1
+        w._send_response(resp)
+        loop.run_until_idle()
+        return sum(1 for m in sent if m.type == PortMsgType.DATA)
+
+    hdr = [HttpHeaderField(name="Content-Type", value="text/html")]
+    hello = count_messages(UnitResponse(status=200, headers=hdr, content=b"Hello"))
+    page = count_messages(UnitResponse(status=200, headers=hdr, content=b"x" * 50 * 1024,
+                                       write_sizes=[4096] * 12 + [2048]))
+    print("3. Response framing in FreeUnit master (one message per application write):")
+    print(f"   - echo 'Hello' (fits the header buffer):   {hello} messages (header+piggyback, empty last)")
+    print(f"   - 50 KiB page in 4 KiB flushes:           {page} messages (header alone, 13 writes, empty last)")
+    print("   - K2 single-buffer framing is a proposal; it is not in master.\n")
 
     # 4. PR 776: Epoll signalfd spurious EAGAIN suppression
     from unit_model.engine.epoll_fsm import SignalfdFSM
@@ -367,7 +390,7 @@ def main() -> int:
     p_verify.add_argument("--seed", type=int, default=42, help="RNG seed")
 
     # benchmark-optimizations
-    subparsers.add_parser("benchmark-optimizations", help="Benchmark K1 & K2 algorithmic improvements")
+    subparsers.add_parser("benchmark-optimizations", help="Benchmark doorbell coalescing and show master response framing")
 
     # prove-k1
     p_k1 = subparsers.add_parser("prove-k1", help="Formally prove K1 bounded doorbell invariants")
