@@ -78,6 +78,15 @@ class Router:
         # Worker registrations: app_id -> List[(worker_id, app_queue, socket_pair)]
         self.workers: Dict[str, List[Tuple[int, AppQueue, UnixSocketPair]]] = {}
         self.worker_rr_index: Dict[str, int] = {}
+        # app_id -> number of configured targets (app->targets_count; an app
+        # without "targets" has one implicit target).  req.app_target must be
+        # below it, else the pass is declined and the request gets 404, as
+        # freeunit PR #925 does for a pass that names a missing target.
+        self.app_targets: Dict[str, int] = {}
+
+    def set_app_targets(self, app_id: str, count: int) -> None:
+        """Set how many targets an application has (default 1)."""
+        self.app_targets[app_id] = count
 
     def register_worker(
         self,
@@ -131,6 +140,24 @@ class Router:
             return
 
         if action == RouteAction.PASS:
+            if req.app_target >= self.app_targets.get(app_id, 1):
+                # Missing target: declined pass, 404 (PR #925).
+                self.loop.record_trace(
+                    f"engine_{engine_id}",
+                    "target_not_found_404",
+                    stream=stream_id,
+                    app_id=app_id,
+                    app_target=req.app_target,
+                )
+                resp = UnitResponse(status=404, content=b"")
+                self.listener.send_http_response(conn, resp)
+                del engine.active_streams[stream_id]
+                self.loop.record_trace(
+                    f"engine_{engine_id}",
+                    "stream_completed",
+                    stream=stream_id,
+                )
+                return
             self._dispatch_to_app(rpc)
 
     def _dispatch_to_app(self, rpc: RpcStream) -> None:

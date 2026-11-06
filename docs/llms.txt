@@ -16,6 +16,7 @@ Core Documentation Index:
 - Model B: Adversarial Verification: https://andypost.github.io/freeunit-model/models/model-b-verification/
 - Differential & Conformance Testing: https://andypost.github.io/freeunit-model/verification/conformance/
 - Telemetry Replay & Root-Cause Analysis: https://andypost.github.io/freeunit-model/verification/replay/
+- Request Path Limits (freeunit #923): https://andypost.github.io/freeunit-model/verification/request-path-limits/
 - Micro-Optimizations & Benchmarks: https://andypost.github.io/freeunit-model/benchmarks/optimizations/
 - Lock-Free SHM Slabs: https://andypost.github.io/freeunit-model/benchmarks/lockfree-shm/
 - Strategic Roadmap: https://andypost.github.io/freeunit-model/roadmap/

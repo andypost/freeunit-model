@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from unit_model.c_types import (
     DetachedMode,
+    FieldNameTooLong,
     HttpHeaderField,
     MmapMsg,
     NXT_PHP_RESPONSE_ROOM,
@@ -247,7 +248,17 @@ class AppWorker:
                 body_size=len(resp.content),
             )
 
-        resp_bytes = resp.serialize()
+        try:
+            resp_bytes = resp.serialize()
+        except FieldNameTooLong as e:
+            # A module refuses a response header name over 255 bytes before
+            # nxt_unit_response_add_field() (freeunit PR #926): the Python,
+            # Perl and Node modules fail the response with 503, PHP with 500.
+            # The model takes the 503 path for every app type.
+            self.loop.record_trace(f"worker_{self.worker_id}",
+                                   "response_header_name_too_long", reason=str(e))
+            resp = UnitResponse(status=503, content=b"")
+            resp_bytes = resp.serialize()
 
         # Allocate shared memory for response
         alloc = self.shm_pool.allocate(len(resp_bytes), resp_bytes)

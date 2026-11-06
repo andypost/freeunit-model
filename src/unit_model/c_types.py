@@ -30,6 +30,16 @@ NXT_APP_QUEUE_SIZE = NXT_APP_NNCQ_SIZE
 NXT_APP_QUEUE_MSG_SIZE = 31
 
 NXT_UNIT_NONE_FIELD = 0xFFFFFFFF
+
+# nxt_unit_field_t.name_length is a uint8_t (nxt_unit_field.h), so a header
+# name can be at most 255 bytes on either side of the port boundary.  The HTTP
+# parser caps a request name at NXT_HTTP_MAX_FIELD_NAME (0xFF,
+# nxt_http_parse.h).  On the response side the modules used to pass a size_t
+# into the uint8_t parameter, so the name was cut to len % 256; freeunit
+# PR #926 makes each module refuse such a name before the call.  The model
+# refuses it in serialize() instead of wrapping like ctypes would (a c_uint8
+# field set to 300 reads back 44).
+NXT_UNIT_FIELD_NAME_MAX = 0xFF
 NXT_UNIT_MAX_PLAIN_SIZE = 1024
 NXT_PHP_RESPONSE_ROOM = 8192
 NXT_HAVE_SIGNALFD = 1
@@ -321,6 +331,10 @@ class QueueItem:
         )
 
 
+class FieldNameTooLong(ValueError):
+    """A header name longer than NXT_UNIT_FIELD_NAME_MAX bytes."""
+
+
 @dataclass
 class HttpHeaderField:
     name: str
@@ -328,6 +342,16 @@ class HttpHeaderField:
     hash: int = 0
     skip: bool = False
     hopbyhop: bool = False
+
+
+def check_field_names(headers: List["HttpHeaderField"], side: str) -> None:
+    """Refuse a header name that does not fit uint8_t name_length."""
+    for h in headers:
+        n = len(h.name.encode("utf-8"))
+        if n > NXT_UNIT_FIELD_NAME_MAX:
+            raise FieldNameTooLong(
+                f"{side} header name of {n} bytes exceeds "
+                f"{NXT_UNIT_FIELD_NAME_MAX} (uint8_t name_length)")
 
 
 @dataclass
@@ -350,6 +374,7 @@ class UnitRequest:
 
     def serialize(self) -> bytes:
         """Serializes request into an exact nxt_unit_request_t byte buffer."""
+        check_field_names(self.headers, "request")
         # Calculate offsets
         req_hdr_size = ctypes.sizeof(CNxtUnitRequest)
         fields_size = len(self.headers) * ctypes.sizeof(CNxtUnitField)
@@ -516,6 +541,7 @@ class UnitResponse:
 
     def serialize(self) -> bytes:
         """Serializes response into an exact nxt_unit_response_t byte buffer."""
+        check_field_names(self.headers, "response")
         resp_hdr_size = ctypes.sizeof(CNxtUnitResponse)
         fields_size = len(self.headers) * ctypes.sizeof(CNxtUnitField)
         payload_start = resp_hdr_size + fields_size
